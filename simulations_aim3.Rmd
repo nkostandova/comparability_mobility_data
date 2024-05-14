@@ -1,0 +1,831 @@
+---
+title: "Simulations_aim3"
+output: html_document
+date: "2023-02-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+source("functions_sims_aim3.R")
+```
+
+## Run set_up_ICs_aim3.Rmd first to set up initial conditions
+
+# Seed 10 cases in Lusaka at time 0 only
+
+## Scenario A - CDR departure, CDR diffusion
+
+```{r}
+# no introductions other than seeding first 10 people in lusaka
+n_sims = 100
+
+# update population matrix
+pop_mat2020_2_full = pop_mat_full %>% dplyr::select("2020.17":"2021.26")
+
+# update parameters
+mcv1_cov_dat2020_2_full = mcv1_cov_dat_full %>% dplyr::select("2020.17":"2021.26")
+mcv2_cov_dat2020_2_full = mcv2_cov_dat_full %>% dplyr::select("2020.17":"2021.26")
+sia_cov2020_2_full = sia_cov_full %>% dplyr::select("2020.17":"2021.26")
+intro_mat2020_2_full = intro_mat_2020_full[, 1:36] 
+
+
+t_2 = 36
+
+parameters_sc2_full = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_prob_full, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scA = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_full)
+write.csv(run_scA, "results/run_scA.csv")
+
+out_A = plots_post_run(runs_output = run_scA, 
+                                    time_max = 36)
+
+```
+
+## Scenario B - CDRwDHS departure, CDR diffusion
+
+```{r}
+# update mobility matrix
+mob_data_CDRwDHS_CDR = readRDS("outputs/feb11/M_CDRwDHS_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_CDRwDHS_CDR)){
+  mob_data_CDRwDHS_CDR[[i]] = mob_data_CDRwDHS_CDR[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullB = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_CDRwDHS_CDR, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scB = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullB)
+write.csv(run_scB, "results/run_scB.csv")
+
+out_B = plots_post_run(runs_output = run_scB, 
+                                    time_max = 36)
+
+```
+
+
+## Scenario C - FB departure, FB diffusion
+
+```{r}
+# update mobility matrix
+mob_data_FB = readRDS("outputs/feb11/M_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_FB)){
+  mob_data_FB[[i]] = mob_data_FB[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullC = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_FB, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scC = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullC)
+write.csv(run_scC, "results/run_scC.csv")
+
+out_C = plots_post_run(runs_output = run_scC, 
+                                    time_max = 36)
+
+```
+
+
+## Scenario D - FBwDHS departure, FB diffusion
+
+```{r}
+# update mobility matrix
+mob_data_FBwDHS_FB = readRDS("outputs/feb11/M_FBwDHS_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_FBwDHS_FB)){
+  mob_data_FBwDHS_FB[[i]] = mob_data_FBwDHS_FB[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullD = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_FBwDHS_FB, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scD = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullD)
+write.csv(run_scD, "results/run_scD.csv")
+
+out_D = plots_post_run(runs_output = run_scD, 
+                                    time_max = 36)
+
+```
+
+
+
+## Scenario E - TS departure, TS diffusion
+
+```{r}
+# update mobility matrix
+mob_data_TS = readRDS("outputs/feb11/M_TS_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_TS)){
+  mob_data_TS[[i]] = mob_data_TS[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullE = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_TS, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scE = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullE)
+write.csv(run_scE, "results/run_scE.csv")
+
+out_E = plots_post_run(runs_output = run_scE, 
+                                    time_max = 36)
+
+```
+
+
+
+
+
+
+## Scenario F - FB departure, FB w TS prior diffusion
+
+```{r}
+# update mobility matrix
+mob_data_FB_FBwTS = readRDS("outputs/feb11/M_FBwTSpr_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_FB_FBwTS)){
+  mob_data_FB_FBwTS[[i]] = mob_data_FB_FBwTS[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullF = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_FB_FBwTS, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scF = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullF)
+write.csv(run_scF, "results/run_scF.csv")
+```
+
+
+
+
+
+
+
+## Scenario G - Pooled raw departure, CDR  diffusion
+
+```{r}
+# update mobility matrix
+mob_data_pooled_CDR = readRDS("outputs/feb11/M_pool_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_pooled_CDR)){
+  mob_data_pooled_CDR[[i]] = mob_data_pooled_CDR[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullG = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_pooled_CDR, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scG = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullG)
+write.csv(run_scG, "results/run_scG.csv")
+```
+
+
+
+
+
+
+
+
+
+
+## Scenario H - Pooled wt departure, CDR diffusion
+
+```{r}
+# update mobility matrix
+mob_data_pooled_wt_CDR = readRDS("outputs/feb11/M_pool_wt_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_pooled_wt_CDR)){
+  mob_data_pooled_wt_CDR[[i]] = mob_data_pooled_wt_CDR[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullH = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_pooled_wt_CDR, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scH = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullH)
+write.csv(run_scH, "results/run_scH.csv")
+```
+
+
+
+
+
+
+## Scenario I - DHS departure, TS diffusion
+
+```{r}
+# update mobility matrix
+mob_data_DHS_TS = readRDS("outputs/feb11/M_DHS_TS_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_DHS_TS)){
+  mob_data_DHS_TS[[i]] = mob_data_DHS_TS[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullI = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_DHS_TS, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scI = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullI)
+write.csv(run_scI, "results/run_scI.csv")
+```
+
+
+
+
+
+
+
+
+## Scenario J - DHS departure, FB diffusion
+
+```{r}
+# update mobility matrix
+mob_data_DHS_FB = readRDS("outputs/feb11/M_DHS_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_DHS_FB)){
+  mob_data_DHS_FB[[i]] = mob_data_DHS_FB[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullJ = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_DHS_FB, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scJ = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullJ)
+write.csv(run_scJ, "results/run_scJ.csv")
+```
+
+
+
+## Scenario K - DHS departure, CDR diffusion
+
+```{r}
+# update mobility matrix
+mob_data_DHS_CDR = readRDS("outputs/feb11/M_DHS_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_DHS_CDR)){
+  mob_data_DHS_CDR[[i]] = mob_data_DHS_CDR[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullK = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_DHS_CDR, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scK = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullK)
+write.csv(run_scK, "results/run_scK.csv")
+```
+
+
+
+
+
+
+
+
+## Scenario L - Pooled raw departure, FB diffusion
+
+```{r}
+# update mobility matrix
+mob_data_pooled_FB = readRDS("outputs/feb11/M_pool_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_pooled_FB)){
+  mob_data_pooled_FB[[i]] = mob_data_pooled_FB[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullL = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_pooled_FB, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scL = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullL)
+write.csv(run_scL, "results/run_scL.csv")
+```
+
+
+
+
+
+
+
+
+
+## Scenario M - Pooled raw departure, TS diffusion
+
+```{r}
+# update mobility matrix
+mob_data_pooled_TS = readRDS("outputs/feb11/M_pool_TS_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_pooled_TS)){
+  mob_data_pooled_TS[[i]] = mob_data_pooled_TS[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullM = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_pooled_TS, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+
+
+run_scM = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullL)
+write.csv(run_scM, "results/run_scM.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+# Seed 10 cases in Ndola and 10 cases in Choma at time 0 only
+
+## Scenario A - CDR departure, CDR diffusion
+
+```{r}
+# no introductions other than seeding first 10 people in lusaka
+n_sims = 100
+
+# introduction in Choma and Ndola
+intro_mat2020_choma_ndola_full = intro_mat_full_choma_ndola[, 1:36]
+
+
+
+
+# update population matrix
+pop_mat2020_2_full = pop_mat_full %>% dplyr::select("2020.17":"2021.26")
+
+# update parameters
+mcv1_cov_dat2020_2_full = mcv1_cov_dat_full %>% dplyr::select("2020.17":"2021.26")
+mcv2_cov_dat2020_2_full = mcv2_cov_dat_full %>% dplyr::select("2020.17":"2021.26")
+sia_cov2020_2_full = sia_cov_full %>% dplyr::select("2020.17":"2021.26")
+
+
+
+t_2 = 36
+
+parameters_sc2_full_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_prob_full, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scA_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_full_cn)
+write.csv(run_scA_cn, "results/run_scA_cn.csv")
+```
+
+## Scenario B - CDRwDHS departure, CDR diffusion
+
+```{r}
+# update mobility matrix
+mob_data_CDRwDHS_CDR = readRDS("outputs/feb11/M_CDRwDHS_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_CDRwDHS_CDR)){
+  mob_data_CDRwDHS_CDR[[i]] = mob_data_CDRwDHS_CDR[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullB_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_CDRwDHS_CDR, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scB_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullB_cn)
+write.csv(run_scB_cn, "results/run_scB_cn.csv")
+
+
+```
+
+
+## Scenario C - FB departure, FB diffusion
+
+```{r}
+# update mobility matrix
+mob_data_FB = readRDS("outputs/feb11/M_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_FB)){
+  mob_data_FB[[i]] = mob_data_FB[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullC_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_FB, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scC_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullC_cn)
+write.csv(run_scC_cn, "results/run_scC_cn.csv")
+
+```
+
+
+## Scenario D - FBwDHS departure, FB diffusion
+
+```{r}
+# update mobility matrix
+mob_data_FBwDHS_FB = readRDS("outputs/feb11/M_FBwDHS_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_FBwDHS_FB)){
+  mob_data_FBwDHS_FB[[i]] = mob_data_FBwDHS_FB[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullD_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_FBwDHS_FB, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scD_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullD_cn)
+write.csv(run_scD_cn, "results/run_scD_cn.csv")
+
+```
+
+
+
+## Scenario E - TS departure, TS diffusion
+
+```{r}
+# update mobility matrix
+mob_data_TS = readRDS("outputs/feb11/M_TS_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_TS)){
+  mob_data_TS[[i]] = mob_data_TS[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullE_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_TS, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scE_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullE_cn)
+write.csv(run_scE_cn, "results/run_scE_cn.csv")
+
+```
+
+
+
+
+
+## Scenario F - FB departure, FB with TS prior diffusion
+
+```{r}
+# update mobility matrix
+mob_data_FB_FBwTS = readRDS("outputs/feb11/M_FBwTSpr_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_FB_FBwTS)){
+  mob_data_FB_FBwTS[[i]] = mob_data_FB_FBwTS[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullF_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_FB_FBwTS, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scF_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullF_cn)
+write.csv(run_scF_cn, "results/run_scF_cn.csv")
+
+```
+
+
+## Scenario G - Pooled raw departure, CDR diffusion
+
+```{r}
+# update mobility matrix
+mob_data_pool_CDR = readRDS("outputs/feb11/M_pool_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_pool_CDR)){
+  mob_data_pool_CDR[[i]] = mob_data_pool_CDR[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullG_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_pool_CDR, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scG_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullG_cn)
+write.csv(run_scG_cn, "results/run_scG_cn.csv")
+
+```
+
+
+
+
+
+## Scenario H - Pooled  departure w DHS, CDR diffusion
+
+```{r}
+# update mobility matrix
+mob_data_pool_wt_CDR_full = readRDS("outputs/feb11/M_pool_wt_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_pool_wt_CDR_full)){
+  mob_data_pool_wt_CDR_full[[i]] = mob_data_pool_wt_CDR_full[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullH_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_pool_wt_CDR_full, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scH_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullH_cn)
+write.csv(run_scH_cn, "results/run_scH_cn.csv")
+
+```
+
+
+
+
+
+## Scenario I - DHS departure, TS diffusion
+
+```{r}
+# update mobility matrix
+mob_data_DHS_TS = readRDS("outputs/feb11/M_DHS_TS_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_DHS_TS)){
+  mob_data_DHS_TS[[i]] = mob_data_DHS_TS[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullI_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_DHS_TS, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scI_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullI_cn)
+write.csv(run_scI_cn, "results/run_scI_cn.csv")
+
+```
+
+
+
+
+
+## Scenario J - DHS departure, FB diffusion
+
+```{r}
+# update mobility matrix
+mob_data_DHS_FB = readRDS("outputs/feb11/M_DHS_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_DHS_FB)){
+  mob_data_DHS_FB[[i]] = mob_data_DHS_FB[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullJ_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_DHS_FB, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scJ_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullJ_cn)
+write.csv(run_scJ_cn, "results/run_scJ_cn.csv")
+
+```
+
+
+
+
+
+## Scenario K - DHS departure, CDR diffusion
+
+```{r}
+# update mobility matrix
+mob_data_DHS_CDR = readRDS("outputs/feb11/M_DHS_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_DHS_CDR)){
+  mob_data_DHS_CDR[[i]] = mob_data_DHS_CDR[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullK_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_DHS_CDR, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scK_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullK_cn)
+write.csv(run_scK_cn, "results/run_scK_cn.csv")
+
+```
+
+## Scenario L - Pooled raw departure, FB diffusion
+
+```{r}
+# update mobility matrix
+mob_data_DHS_FB = readRDS("outputs/feb11/M_pool_FB_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_DHS_FB)){
+  mob_data_DHS_FB[[i]] = mob_data_DHS_FB[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullL_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_DHS_FB, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scL_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullL_cn)
+write.csv(run_scL_cn, "results/run_scL_cn.csv")
+
+```
+
+
+
+
+
+## Scenario M - Pooled raw departure, TS diffusion
+
+```{r}
+# update mobility matrix
+mob_data_DHS_TS = readRDS("outputs/feb11/M_pool_TS_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_DHS_TS)){
+  mob_data_DHS_TS[[i]] = mob_data_DHS_TS[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+
+parameters_sc2_fullM_cn = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_DHS_TS, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_choma_ndola_full)
+
+
+run_scM_cn = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullM_cn)
+write.csv(run_scM_cn, "results/run_scM_cn.csv")
+
+```
+
+############### SENSITIVITY ANALYSIS - DIFFERENT R0 VALUES AND GENERATION TIMES ################
+
+# change beta values -- divide by 4
+```{r}
+beta0_low = 15 / 4
+beta1_low = 0.3
+
+gamma = 1
+beta_values_low = beta0_low * (1 + beta1_low*cos(2*pi*seq(0,1,length=26)))
+
+parameters_sc2_full_low = parameters_sc2_full
+parameters_sc2_full_low$beta_values = beta_values_low
+
+```
+
+
+## Scenario A - CDR departure, CDR diffusion
+
+```{r}
+
+run_scA_betalow = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_full_low)
+write.csv(run_scA_betalow, "results/run_scA_betalow.csv")
+
+out_A_betalow = plots_post_run(runs_output = run_scA_betalow, 
+                                    time_max = 36)
+
+```
+## Scenario C - FB departure, FB diffusion
+
+```{r}
+parameters_sc2_fullC_betalow =parameters_sc2_fullC
+parameters_sc2_fullC_betalow$beta_values = beta_values_low
+
+run_scC_betalow = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullC_betalow)
+write.csv(run_scC_betalow, "results/run_scC_betalow.csv")
+
+out_C_betalow = plots_post_run(runs_output = run_scC_betalow, 
+                                    time_max = 36)
+
+```
+
+
+## Scenario E - TS departure, TS diffusion
+
+```{r}
+
+parameters_sc2_fullE_betalow =parameters_sc2_fullE
+parameters_sc2_fullE_betalow$beta_values = beta_values_low
+
+run_scE_betalow = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullE_betalow)
+write.csv(run_scE_betalow, "results/run_scE_betalow.csv")
+
+out_E_betalow = plots_post_run(runs_output = run_scE_betalow, 
+                                    time_max = 36)
+
+```
+
+
+
+# change beta values -- set to 2
+```{r}
+beta0_two = 15/2
+beta1_low = 0.3
+
+gamma = 1
+beta_values_beta2 = beta0_two * (1 + beta1_low*cos(2*pi*seq(0,1,length=26)))
+
+parameters_sc2_full_2 = parameters_sc2_full
+parameters_sc2_full_2$beta_values = beta_values_beta2
+
+```
+
+
+## Scenario A - CDR departure, CDR diffusion
+
+```{r}
+
+run_scA_beta2 = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_full_2)
+write.csv(run_scA_beta2, "results/run_scA_beta2.csv")
+
+out_A_beta2 = plots_post_run(runs_output = run_scA_beta2, 
+                                    time_max = 36)
+
+```
+rf## Scenario C - FB departure, FB diffusion
+
+```{r}
+parameters_sc2_fullC_beta2 =parameters_sc2_fullC
+parameters_sc2_fullC_beta2$beta_values = beta_values_beta2
+
+run_scC_beta2 = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullC_beta2)
+write.csv(run_scC_beta2, "results/run_scC_beta2.csv")
+
+out_C_beta2 = plots_post_run(runs_output = run_scC_beta2, 
+                                    time_max = 36)
+
+```
+
+
+## Scenario E - TS departure, TS diffusion
+
+```{r}
+
+parameters_sc2_fullE_beta2 =parameters_sc2_fullE
+parameters_sc2_fullE_beta2$beta_values = beta_values_beta2
+
+run_scE_beta2 = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_sc2_fullE_beta2)
+write.csv(run_scE_beta2, "results/run_scE_beta2.csv")
+
+out_E_beta2 = plots_post_run(runs_output = run_scE_beta2, 
+                                    time_max = 36)
+
+```
+
+
+## Sensitivity analysis - missed population approach
+```{r}
+t_2 = 36
+
+name_files = dir("outputs/sensitivity")
+
+#mob_data_temp = readRDS("outputs/sensitivity/M_CDR_delta1_theta1_omega1_1_omega2_1_p1.rds")
+# original start: k = 3 (first two files not what we want for this)
+start_k = 101
+end_k = length(name_files)
+for (k in start_k:end_k){
+  mob_data_temp = readRDS(paste0("outputs/sensitivity/", name_files[3]))
+  # order in same way as the other initial conditions
+  for (i in 1:length(mob_data_temp)){
+    mob_data_temp[[i]] = mob_data_temp[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+  }
+  
+  parameters_t1 = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_temp, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+  
+  
+  run_sen1 = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_t1)
+  
+  write_name = paste0("outputs/sen/sens", k, ".csv")
+  write.csv(run_sen1, write_name)
+}
+#write.csv(run_sen1, "results/sensitivity/run_sc1.csv")
+
+
+```
+
+```{r}
+
+# check
+sens3 = read.csv("outputs/sen/sens3.csv")
+sens3_p = plots_post_run(runs_output = sens3, time_max = 36)
+
+sens4 = read.csv("outputs/sen/sens4.csv")
+sens4_p = plots_post_run(runs_output = sens4, time_max = 36)
+
+
+
+```
+
+## Sensitivity analysis - missed population approach -- more susceptible ICs
+```{r}
+t_2 = 36
+
+name_files = dir("outputs/sensitivity")
+
+#mob_data_temp = readRDS("outputs/sensitivity/M_CDR_delta1_theta1_omega1_1_omega2_1_p1.rds")
+# original start: k = 3 (first two files not what we want for this)
+start_k = 101
+end_k = length(name_files)
+for (k in start_k:end_k){
+  mob_data_temp = readRDS(paste0("outputs/sensitivity/", name_files[3]))
+  # order in same way as the other initial conditions
+  for (i in 1:length(mob_data_temp)){
+    mob_data_temp[[i]] = mob_data_temp[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+  }
+  
+  parameters_t1 = list(sd.dw.val = sd.dw.val, t = t_2, mob_data_prob = mob_data_temp, mcv1_cov_dat = mcv1_cov_dat2020_2_full, mcv2_cov_dat= mcv2_cov_dat2020_2_full, sia_cov = sia_cov2020_2_full, births_rate = births_rate_full, wane_mat = wane_mat, beta_values = beta_values, alpha = alpha, deaths_rate = deaths_rate_full, measles_cfr = measles_cfr, MR1_time = MR1_time, MR2_time = MR2_time, p_eff_V1r =p_eff_V1r, p_eff_V1c =p_eff_V1c, intro_mat = intro_mat2020_2_full)
+  
+  
+  run_sen1 = multi_run(num_runs = n_sims, p_mat = pop_mat2020_2_full, ICs = initial_conditions_full, pars = parameters_t1)
+  
+  write_name = paste0("outputs/sen/sens", k, ".csv")
+  write.csv(run_sen1, write_name)
+}
+#write.csv(run_sen1, "results/sensitivity/run_sc1.csv")
+
+
+```
+
+```{r}
+
+# check
+sens3 = read.csv("outputs/sen/sens3.csv")
+sens3_p = plots_post_run(runs_output = sens3, time_max = 36)
+
+sens4 = read.csv("outputs/sen/sens4.csv")
+sens4_p = plots_post_run(runs_output = sens4, time_max = 36)
+
+
+
+```

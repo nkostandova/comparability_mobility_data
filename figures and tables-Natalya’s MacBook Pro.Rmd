@@ -1,0 +1,2445 @@
+---
+title: "figures and tables"
+output: html_document
+date: "2023-02-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(questionr)
+library(flextable)
+library(lubridate)
+library(ggplot2)
+library(dplyr)
+library(ggsci)
+library(sf)
+
+
+source("functions_sims_aim3.R")
+```
+
+# New figure 1
+
+
+Fig 1a - district-level coverage
+```{r}
+prob_stay_all = read.csv("outputs/feb11/prob_stay_all_raw.csv")
+
+yes_og = prob_stay_all |> mutate(yes_cdr = ifelse(is.na(ps_CDR), 0, 1),
+                                 yes_FB = ifelse(is.na(ps_FB), 0, 1),
+                                 yes_DHS = ifelse(is.na(ps_DHS), 0, 1),
+                                 yes_TS = ifelse(is.na(ps_TS), 0, 1))
+
+# merge with dhs shapefile
+shp_zam2 = read_sf("../Shapefiles/zmb_admbnda_adm2_dmmu_20201124.shp")
+shp_zam2$district_lower = tolower(shp_zam2$ADM2_EN)
+
+origin_cov = left_join(shp_zam2, yes_og |> select(yes_cdr, yes_FB, yes_DHS, yes_TS, district), by = c("district_lower"= "district"))
+origin_cov$yes_cdr = factor(origin_cov$yes_cdr,
+                            levels = c(1, 0),
+                            labels = c("Yes", "No"))
+origin_cov$yes_TS = factor(origin_cov$yes_TS,
+                           levels = c(1,0),
+                           labels = c("Yes", "No"))
+origin_cov$yes_FB = factor(origin_cov$yes_FB,
+                           levels = c(1,0),
+                           labels = c("Yes", "No"))
+origin_cov$yes_DHS = factor(origin_cov$yes_DHS,
+                           levels = c(1,0),
+                           labels = c("Yes", "No"))
+
+
+# CDR 
+origin_cov |> ggplot(aes(fill = (yes_cdr)))+  
+  geom_sf(linewidth = 1) + 
+  scale_fill_manual(values = c(pal_nejm()(2)[2], pal_nejm()(2)[1]))+
+  theme_void()
+
+# TS
+origin_cov |> ggplot(aes(fill = (yes_TS)))+  
+  geom_sf(linewidth = 1) + 
+  scale_fill_manual(values = c(pal_nejm()(2)[2], pal_nejm()(2)[1]))+
+  theme_void()
+
+# FB
+origin_cov |> ggplot(aes(fill = (yes_FB)))+  
+  geom_sf(linewidth = 1) + 
+  scale_fill_manual(values = c(pal_nejm()(2)[2], pal_nejm()(2)[1]))+
+  theme_void()
+
+# DHS
+origin_cov |> ggplot(aes(fill = (yes_DHS)))+  
+  geom_sf(linewidth = 1) + 
+  scale_fill_manual(values = c(pal_nejm()(2)[2], pal_nejm()(2)[1]))+
+  theme_void()
+
+```
+Fig 1B - coverage of destinations
+```{r}
+# CDR
+M_diag = readRDS('../data/OD_data_diag.rds')
+
+# get total trips to district
+M_diag_tots = as.data.frame(M_diag)
+M_diag_tots = colSums(M_diag_tots) # all 107 are non-zer
+
+origin_cov = origin_cov |> mutate(out_CDR = ifelse(district_lower %in% names(M_diag_tots), 1, 0))
+origin_cov$out_CDR = factor(origin_cov$out_CDR,
+                           levels = c(1,0),
+                           labels = c("Yes", "No"))
+
+# Facebook
+M_fb2 = read.csv("outputs/feb11/M_fb.csv")
+rownames(M_fb2) = M_fb2$X
+M_fb2 = M_fb2 %>% dplyr::select(-X)
+M_diag_tots = as.data.frame(M_fb2)
+diag(M_diag_tots) <- NA
+M_diag_tots = colSums(M_diag_tots, na.rm=TRUE) 
+M_diag_tots = M_diag_tots[M_diag_tots !=0]# 17 districts
+
+origin_cov = origin_cov |> mutate(out_FB = ifelse(district_lower %in% names(M_diag_tots), 1, 0))
+origin_cov$out_FB = factor(origin_cov$out_FB,
+                           levels = c(1,0),
+                           labels = c("Yes", "No"))
+
+# DHS
+origin_cov$out_DHS = 0
+origin_cov$out_DHS = factor(origin_cov$out_DHS,
+                           levels = c(1,0),
+                           labels = c("Yes", "No"))
+
+
+# Travel survey
+mob_mat_TS = readRDS("data/mobility_mat_travelsurvey.RDS")$M
+diag(mob_mat_TS) <- NA
+mob_mat_TS = colSums(mob_mat_TS, na.rm=TRUE) 
+mob_mat_TS = mob_mat_TS[mob_mat_TS !=0]# 39 districts
+
+
+origin_cov = origin_cov |> mutate(out_TS = ifelse(district_lower %in% names(mob_mat_TS), 1, 0))
+origin_cov$out_TS = factor(origin_cov$out_TS,
+                           levels = c(1,0),
+                           labels = c("Yes", "No"))
+
+# CDR 
+origin_cov |> ggplot(aes(fill = (out_CDR)))+  
+  geom_sf(linewidth = 1) + 
+  scale_fill_manual(values = c(pal_nejm()(2)[2], pal_nejm()(2)[1]))+
+  theme_void()
+
+# TS
+origin_cov |> ggplot(aes(fill = (out_TS)))+  
+  geom_sf(linewidth = 1) + 
+  scale_fill_manual(values = c(pal_nejm()(2)[2], pal_nejm()(2)[1]))+
+  theme_void()
+
+# FB
+origin_cov |> ggplot(aes(fill = (out_FB)))+  
+  geom_sf(linewidth = 1) + 
+  scale_fill_manual(values = c(pal_nejm()(2)[2], pal_nejm()(2)[1]))+
+  theme_void()
+
+# DHS
+origin_cov |> ggplot(aes(fill = (out_DHS)))+  
+  geom_sf(linewidth = 1) + 
+  scale_fill_manual(values = c(pal_nejm()(2)[1]))+
+  theme_void()
+```
+
+# Figure 1
+
+Figure 1A
+```{r}
+# make a histogram of probability of leaving
+prob_stay_all = read.csv("outputs/feb11/prob_stay_all_raw.csv")
+
+# make into a long dataframe
+prob_stay_all_long = prob_stay_all %>% pivot_longer(cols = c(ps_CDR, ps_TS, ps_FB, ps_DHS),
+                                                    names_to = "dataset")
+prob_stay_all_long = prob_stay_all_long %>% mutate(dataset_label = case_when(dataset == "ps_CDR" ~ "Mobile phone",
+                                                                             dataset == "ps_TS" ~ "Travel survey",
+                                                                             dataset == "ps_FB" ~ "Facebook",
+                                                                             dataset == "ps_DHS" ~ "DHS"))
+prob_stay_all_long = prob_stay_all_long %>% group_by(dataset) %>% mutate(prob = value / sum(value, na.rm=TRUE))
+
+# change to probability of leaving
+prob_stay_all_long = prob_stay_all_long %>% mutate(value = 1 - value)
+
+# make a histogram of probabilities
+ggplot(prob_stay_all_long, aes(x = value, fill = dataset_label)) +
+  geom_histogram(color = "black") +
+  theme_minimal() + xlab("Probability of departure") +  ylab("Frequency")+
+  geom_vline(data = plyr::ddply(prob_stay_all_long, "dataset_label", summarize, wavg = mean(value, na.rm=TRUE)), aes(xintercept=wavg), linetype = "dashed", color = "gray") +
+  facet_wrap(~dataset_label, nrow = 1) + 
+  scale_fill_aaas() + 
+    theme(text = element_text(size = 20))+
+  guides(fill = FALSE) 
+ggsave("figures/histogram_prob_travel.pdf", height = 7, width = 11, dpi=700)
+
+# get mean values
+prob_stay_all_long %>% group_by(dataset) %>% summarize(mean = mean(value, na.rm=TRUE))
+
+# make one with density curve
+ggplot(prob_stay_all_long, aes(x = value, fill = dataset_label)) +
+  geom_histogram(color = "black") +
+  geom_density(lwd = 1, colour = "orange", fill = "orange", alpha = 0.25)+
+  theme_minimal() + xlab("Probability of departure") +  ylab("Frequency")+
+  geom_vline(data = plyr::ddply(prob_stay_all_long, "dataset_label", summarize, wavg = mean(value, na.rm=TRUE)), aes(xintercept=wavg), linetype = "dashed", color = "gray") +
+  facet_wrap(~dataset_label, nrow = 1) + 
+  scale_fill_aaas() + 
+    theme(text = element_text(size = 30))+
+  guides(fill = FALSE) 
+```
+
+Figure 1B - province-level probabilities of travel
+
+```{r}
+# get province labels
+
+prob_stay_all_long = merge(prob_stay_all_long, districts.full %>% dplyr::select(district_map, province_2018), all.x=TRUE, by.x = "district", by.y = "district_map")
+
+
+# make boxplots by province -- drop outliers
+prob_stay_all_long %>% ggplot(aes(x = dataset_label, y = value, fill = dataset_label)) + 
+  geom_boxplot(outlier.shape=NA) + 
+  #geom_jitter(size = 0.7)+
+  facet_wrap(~province_2018, nrow = 4)+
+  theme_minimal() +ylab("Probability of departure")+xlab("")+
+    scale_fill_aaas(name = "Dataset") + 
+  scale_y_continuous(limits = c(0, 0.25))+
+      theme(text = element_text(size = 20),
+            axis.text = element_text(size = 10),
+            panel.spacing = unit(2, "lines")) +
+  guides(fill=FALSE)
+ggsave("figures/boxplot_prob_travel_dataset.pdf",  dpi=700)
+
+
+```
+
+
+
+Figure 1C - keep select districts only
+```{r}
+districts_keep_fb = prob_stay_all_long %>% filter(is.na(value)==FALSE & dataset_label == "Facebook")
+districts_keep_fb = districts_keep_fb$district
+prob_stay_all_long_select = prob_stay_all_long %>% filter(district %in% c(districts_keep_fb, "ndola", "choma"))
+
+# combine with population size
+dens_dat = read.csv("../data/district_area_pop_115_perUNadjsutedWorldPop.csv")
+dens_dat$lower_dist = tolower(dens_dat$district)
+prob_stay_all_long_select = merge(prob_stay_all_long_select, dens_dat %>% dplyr::select(lower_dist, density, pop_2020sum), by.x = "district", by.y = "lower_dist", all.x=TRUE)
+prob_stay_all_long_select$district = factor(prob_stay_all_long_select$district,
+                                          levels = unique(prob_stay_all_long_select$district[order(-prob_stay_all_long_select$pop_2020sum)]), ordered=TRUE)
+
+ggplot(prob_stay_all_long_select, aes(color = dataset_label)) +
+  #geom_point(aes(x = district, y = value))+
+  geom_jitter(aes(x = district, y = value), width = 0.1)+
+  #geom_line(aes(x = district, y = value))+
+  theme_minimal() + xlab("District") + ylab("Probability") +
+    scale_color_aaas(name = "Dataset") + 
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) 
+ggsave("figures/select_districts_travel.pdf",  dpi=700, width = 11, height = 9)
+
+ps1 = prob_stay_all_long %>% filter(district %in% 
+                                              c("choma", "ndola",
+                                                "chibombo", "chilanga", "chongwe", "kafue", "chisamba", "masaiti", "chikankanta", "rufunsa", "lavushimanda"))
+ps1$upper_dist = str_to_title(ps1$district)
+# arrange - chome and ndola separately
+ps1$upper_dist  = factor(ps1$upper_dist,
+                         levels = c("Choma", "Ndola", unique(ps1$upper_dist)[!unique(ps1$upper_dist) %in% c("Choma", "Ndola")]))
+ps1$num =  unclass(ps1$upper_dist) 
+myLoc <- 
+  (which(levels(ps1$upper_dist) == "Ndola") +
+     which(levels(ps1$upper_dist) == "Chibombo")) / 
+  2
+
+
+
+# now only keep those with the largest differences, plus choma and ndola
+ggplot(ps1, aes(x = upper_dist, color = dataset_label)) +
+  #geom_point(aes(x = district, y = value))+
+  geom_bar(aes(y = value, fill = dataset_label), width = 0.4, stat = "identity", position = position_dodge())+
+  #geom_jitter(aes(x = district, y = value), width = 0.1)+
+  #geom_line(aes(x = district, y = value))+
+  theme_minimal() + xlab("District") + ylab("Probability of departure") +
+    scale_color_aaas(name = "Dataset") + 
+  scale_fill_aaas(name = "Dataset")+
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(color = "grey20", size = 16, angle = 90, hjust = .5, vjust = .5, face = "plain")) +
+      geom_vline(aes(xintercept = myLoc), linetype = "dashed", colour = "grey20", size = 1)
+ggsave("figures/select_districts_travel2.pdf",  dpi=700, width = 11, height = 7)
+
+
+# calculate correlation between datasets
+cor.test(1-prob_stay_all$ps_CDR, 1-prob_stay_all$ps_FB, use="complete.obs", method = c("spearman"))
+cor.test(1-prob_stay_all$ps_CDR, 1-prob_stay_all$ps_DHS, use="complete.obs", method = c("spearman"))
+cor.test(1-prob_stay_all$ps_DHS, 1-prob_stay_all$ps_FB, use="complete.obs", method = c("spearman"))
+
+# get IQRs
+summary(1-prob_stay_all$ps_CDR)
+summary(1-prob_stay_all$ps_FB)
+summary(1-prob_stay_all$ps_DHS)
+summary(1-prob_stay_all$ps_TS)
+
+### keep only 5 districts + choma+ndola
+prob_stay_select = prob_stay_all
+prob_stay_select = prob_stay_select  %>% rowwise() %>% mutate(min_ps = min(ps_CDR, ps_TS, ps_FB, ps_DHS, na.rm=TRUE),
+                                                max_ps = max(ps_CDR, ps_TS, ps_FB, ps_DHS, na.rm=TRUE))
+# calculate difference
+prob_stay_select = prob_stay_select %>% rowwise() %>% mutate(diff = max_ps - min_ps)
+# identify the top 5
+top5_diff = prob_stay_select %>% arrange(desc(diff)) %>% ungroup() %>% slice(1:5)
+
+ps1 = prob_stay_all_long %>% filter(district %in% 
+                                              c("choma", "ndola", top5_diff$district))
+ps1$upper_dist = str_to_title(ps1$district)
+# arrange - chome and ndola separately
+ps1$upper_dist  = factor(ps1$upper_dist,
+                         levels = c("Choma", "Ndola", unique(ps1$upper_dist)[!unique(ps1$upper_dist) %in% c("Choma", "Ndola")]))
+ps1$num =  unclass(ps1$upper_dist) 
+myLoc <- 
+  (which(levels(ps1$upper_dist) == "Ndola") +
+     which(levels(ps1$upper_dist) == "Chibombo")) / 
+  2
+
+
+
+
+# now only keep those with the largest differences, plus choma and ndola
+ggplot(ps1, aes(x = upper_dist, color = dataset_label)) +
+  #geom_point(aes(x = district, y = value))+
+  geom_bar(aes(y = value, fill = dataset_label), width = 0.6, stat = "identity", position = position_dodge())+
+  #geom_jitter(aes(x = district, y = value), width = 0.1)+
+  #geom_line(aes(x = district, y = value))+
+  theme_minimal() + xlab("District") + ylab("Probability of departure") +
+    scale_color_aaas(name = "Dataset") + 
+  scale_fill_aaas(name = "Dataset")+
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(color = "grey20", size = 16, angle = 90, hjust = .5, vjust = .5, face = "plain")) +
+      geom_vline(aes(xintercept = myLoc), linetype = "dashed", colour = "grey20", size = 1)
+ggsave("figures/select_districts_travel2v2.pdf",  dpi=700, width = 11, height = 7)
+
+
+## split out for choma and ndola, separately from those with biggest differences
+ggplot(ps1 %>% filter(!(district %in% c("choma", "ndola"))), aes(x = upper_dist, color = dataset_label)) +
+  #geom_point(aes(x = district, y = value))+
+  geom_bar(aes(y = value, fill = dataset_label), width = 0.6, stat = "identity", position = position_dodge())+
+  #geom_jitter(aes(x = district, y = value), width = 0.1)+
+  #geom_line(aes(x = district, y = value))+
+  theme_minimal() + xlab("District") + ylab("Probability of departure") +
+    scale_color_aaas(name = "Dataset") + 
+  scale_fill_aaas(name = "Dataset")+
+  theme(text = element_text(size = 30),
+        axis.text.x = element_text(color = "grey20", size = 30, angle = 90, hjust = .5, vjust = .5, face = "plain"))
+
+
+ggplot(ps1 %>% filter((district %in% c("choma", "ndola"))), aes(x = upper_dist, color = dataset_label)) +
+  #geom_point(aes(x = district, y = value))+
+  geom_bar(aes(y = value, fill = dataset_label), width = 0.6, stat = "identity", position = position_dodge())+
+  #geom_jitter(aes(x = district, y = value), width = 0.1)+
+  #geom_line(aes(x = district, y = value))+
+  theme_minimal() + xlab("District") + ylab("Probability of departure") +
+    scale_color_aaas(name = "Dataset") + 
+  scale_fill_aaas(name = "Dataset")+
+  theme(text = element_text(size = 30),
+        axis.text.x = element_text(color = "grey20", size = 30, angle = 90, hjust = .5, vjust = .5, face = "plain"))
+
+```
+
+Just look at DHS and travel survey for Choma and Ndola
+```{r}
+ggplot(prob_stay_all_long %>% filter(district %in% c("choma", "ndola")) %>% filter(dataset_label %in% c("DHS", "Travel survey")), aes(color = dataset_label, fill = dataset_label)) +
+  #geom_point(aes(x = district, y = value))+
+  geom_bar(aes(x = district, y = value), stat = "identity", position = position_dodge(),
+           width = 0.1)+
+  #geom_line(aes(x = district, y = value))+
+  theme_minimal() + xlab("District") + ylab("Probability") +
+    scale_color_nejm(name = "Dataset") + 
+  scale_fill_nejm(name = "Dataset")+
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) 
+
+```
+
+Supplement - all districts
+```{r}
+prob_stay_all_long = merge(prob_stay_all_long, dens_dat %>% dplyr::select(lower_dist, density, pop_2020sum), by.x = "district", by.y = "lower_dist", all.x=TRUE)
+
+nquant = 3
+prob_stay_all_long$quantile_pop = ntile(-prob_stay_all_long$pop_2020sum, 3)
+
+prob_stay_all_long$district = factor(prob_stay_all_long$district,
+                                          levels = unique(prob_stay_all_long$district[order(-prob_stay_all_long$pop_2020sum)]), ordered=TRUE)
+prob_stay_all_long$district_upp = str_to_title(prob_stay_all_long$district)
+ggplot(prob_stay_all_long %>% arrange(desc(pop_2020sum)), aes(color = dataset_label)) +
+  geom_jitter(aes(x = district_upp, y = value), alpha = 0.7, width = 0.1)+
+  theme_minimal() + xlab("District") + ylab("Probability of departure") +
+  scale_color_aaas(name = "Dataset")+
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) + 
+  facet_wrap(~quantile_pop, nrow = nquant, scale="free_x")
+ggsave("figures/FigS1.pdf",  dpi=700, width = 11, height = 9)
+
+
+```
+
+# Figure 2
+
+
+```{r}
+dhs_dat = read.csv("dhs_men_wom.csv") #112 unique districts
+
+
+# quick look at profile of people in the dataset
+summary(dhs_dat$age)
+table(dhs_dat$sex)
+table(dhs_dat$educ_level)
+table(dhs_dat$religion)
+
+dhs_trav_phone = dhs_dat %>% group_by(district, owns_mobile_phone) %>% summarize(travel_12mo = sum(travel_12months*sample_weight)/sum(sample_weight),
+                                                        tot_pop = sum(sample_weight))
+dhs_trav_phone = dhs_trav_phone %>% mutate(travel_1mo = travel_12mo/12)
+dhs_trav_phone = dhs_trav_phone %>% mutate(ps_DHS = 1- travel_1mo)
+dhs_trav_phone$district = tolower(dhs_trav_phone$district)
+dhs_trav_phone$owns_mobile_phone = as.factor(dhs_trav_phone$owns_mobile_phone)
+dhs_trav_phone$owns_mobile_phone = factor(dhs_trav_phone$owns_mobile_phone,
+                                          levels = c("0", "1"),
+                                          labels = c("No", "Yes"))
+
+
+hist_dhs_phone = ggplot(dhs_trav_phone, aes(x = travel_1mo, fill = owns_mobile_phone, color = owns_mobile_phone)) +
+  geom_histogram(position = "identity", alpha = 0.5)+
+  theme_minimal() + xlab("Probability of departure") + ylab("Frequency")+
+  scale_fill_aaas(name = "Mobile phone ownership")+
+  scale_color_aaas(name = "Mobile phone ownership")+
+  theme(text = element_text(size = 30),
+                   axis.text = element_text(size = 24))
+
+
+# do the same for internet use
+dhs_trav_int = dhs_dat %>% group_by(district, use_internet) %>% summarize(travel_12mo = sum(travel_12months*sample_weight)/sum(sample_weight),
+                                                        tot_pop = sum(sample_weight))
+dhs_trav_int = dhs_trav_int %>% mutate(travel_1mo = travel_12mo/12)
+dhs_trav_int = dhs_trav_int %>% mutate(ps_DHS = 1- travel_1mo)
+dhs_trav_int$district = tolower(dhs_trav_int$district)
+dhs_trav_int$use_internet = as.factor(dhs_trav_int$use_internet)
+dhs_trav_int$use_internet = factor(dhs_trav_int$use_internet,
+                                          levels = c("0", "1"),
+                                          labels = c("No", "Yes"))
+
+hist_dhs_internet = ggplot(dhs_trav_int %>% filter(is.na(use_internet)==FALSE), aes(x = travel_1mo, fill = use_internet, color = use_internet)) +
+  geom_histogram(position = "identity", alpha = 0.5)+
+  theme_minimal() + xlab("Probability of departure") + ylab("Frequency")+
+  scale_fill_aaas(name = "Internet use")+
+  scale_color_aaas(name = "Internet use")+
+  theme(text = element_text(size = 30),
+                   axis.text = element_text(size = 24))
+
+legend_phone <- cowplot::get_legend(
+  # create some space to the left of the legend
+  hist_dhs_phone + theme(legend.box.margin = margin(0, 0, 0, 12))
+)
+legend_int <- cowplot::get_legend(
+  # create some space to the left of the legend
+  hist_dhs_internet + theme(legend.box.margin = margin(0, 0, 0, 12))
+)
+
+
+cowplot::plot_grid(hist_dhs_phone + theme(legend.position="none"),
+                   legend_phone,
+                   hist_dhs_internet + theme(legend.position="none"),
+                   legend_int,
+                   nrow = 1, rel_widths = c(3, .4),
+                   align = 'vh')
+cowplot::plot_grid(hist_dhs_phone + theme(legend.position="none"),
+                   hist_dhs_internet + theme(legend.position="none"),
+                   nrow = 1, rel_widths = c(3, 3),
+                   align = 'vh')
+ggsave("figures/stratified_dhs_prob.pdf",  dpi=700, width = 11, height = 9)
+
+
+# plot difference between weighted and unweighted
+prob_stay_all_w_cov = read.csv("outputs/feb11/prob_stay_all_w_cov.csv")
+prob_stay_all_strat = prob_stay_all_w_cov %>% mutate(travel_CDR = 1 - ps_CDR,
+                                         travel_wtCDR = 1 - ps_CDR_wtDHS,
+                                         travel_FB = 1- ps_FB,
+                                         travel_wtFB = 1 - ps_FB_wtDHS)
+# minimum at 0
+prob_stay_all_strat = prob_stay_all_strat %>% rowwise() %>% mutate(travel_wtCDR = max(travel_wtCDR, 0, na.rm=TRUE),
+                                                     travel_wtFB =  max(travel_wtFB, 0, NA, na.rm=TRUE))
+prob_stay_all_strat = prob_stay_all_strat %>% mutate(perc_diff_wtCDR = (travel_wtCDR - travel_CDR)/travel_CDR*100,
+                                         perc_diff_wtFB = (travel_wtFB - travel_FB)/travel_FB*100)
+prob_stay_all_strat2 = prob_stay_all_strat
+
+
+prob_stay_all_strat = prob_stay_all_strat %>% dplyr::select(district, perc_diff_wtCDR, perc_diff_wtFB) %>% 
+  pivot_longer(cols = -c(district), 
+               names_to = "dataset",
+               values_to = "prob_travel")
+prob_stay_all_strat = prob_stay_all_strat %>% mutate(dataset_label = ifelse(dataset == "perc_diff_wtCDR", "Mobile phone", "Facebook"))
+
+# make a barplot for the two
+prob_stay_all_strat %>% ggplot(aes(x = dataset_label, y = prob_travel, fill = dataset_label)) + 
+  geom_boxplot() + 
+  geom_jitter(size = 1.5, color = "grey18")+
+  theme_minimal() +ylab("Percent")+xlab("")+
+    #scale_fill_jama(name = "Dataset") + 
+      theme(text = element_text(size = 30),
+            axis.text = element_text(size = 30)) +
+  guides(fill=FALSE)+
+  scale_fill_manual(values = c(pal_d3()(5)[5], pal_d3()(4)[2]))
+  #scale_fill_d3(name = "Dataset")
+  #scale_fill_manual(values=c(pal_aaas()(5)[2], pal_aaas()(5)[3]))
+ggsave("figures/boxplot_change_weighting.pdf",  dpi=700)
+
+
+
+# get summaries for changes - number increased and decreased; IQR
+prob_stay_all_strat %>% group_by(dataset_label) %>% summarize(increased = sum(prob_travel>0, na.rm=TRUE),
+                                                              decreased = sum(prob_travel<0, na.rm=TRUE))
+prob_stay_all_strat %>% group_by(dataset_label) %>% summarize(median = median(prob_travel, na.rm=TRUE),
+                                                              IQR = quantile(prob_travel, probs = c(0.25, 0.75), na.rm=TRUE))
+      
+
+# change in probabilities
+prob_stay_all_strat_cdr = prob_stay_all_strat2 %>% dplyr::select(district, travel_CDR, travel_wtCDR) %>% 
+  pivot_longer(cols = -c(district), 
+               names_to = "weighted",
+               values_to = "prob_travel")
+prob_stay_all_strat_fb = prob_stay_all_strat2 %>% dplyr::select(district, travel_FB, travel_wtFB) %>% 
+  pivot_longer(cols = -c(district), 
+               names_to = "weighted",
+               values_to = "prob_travel")
+prob_stay_all_strat_fb_cdr = rbind(prob_stay_all_strat_cdr, prob_stay_all_strat_fb)
+prob_stay_all_strat_fb_cdr = prob_stay_all_strat_fb_cdr %>% mutate(
+  wt = ifelse(weighted %in% c("travel_wtFB", "travel_wtCDR"), "Weighted", "Unweighted"),
+                    dataset = ifelse(weighted %in% c("travel_wtFB", "travel_FB"), "Facebook", "Mobile phone")
+)
+
+ggplot(prob_stay_all_strat_fb_cdr, aes(color =  district, y = prob_travel, x = wt)) +
+  geom_line(aes(wt, prob_travel, color = as.factor(district), group = district), alpha = 0.5)+
+  facet_wrap(~dataset)+
+    geom_point(size = 0.7 )+
+  ylab("Probability of departure") + xlab("")+
+  guides(alpha = "none", color = "none")+
+  theme(legend.position="none")+theme_minimal()
+  
+
+```
+
+
+# Figure 3
+```{r}
+combo_fitted_travel_wcov = read.csv("outputs/feb11/combo_fitted_travel_wcov.csv")
+
+# compare raw vs fitted ones
+comp_fitted_raw_dep = combo_fitted_travel_wcov %>% filter(is.na(pop) == FALSE)  %>% dplyr::select(dataset, districts, mean) 
+comp_fitted_raw_dep = comp_fitted_raw_dep %>% pivot_wider(id_cols = districts, names_from = dataset, values_from = mean)
+# rename 
+comp_fitted_raw_dep = comp_fitted_raw_dep %>% dplyr::rename(DHS_fit = DHS,
+                                                            wtFB_fit = `FB, wt DHS`,
+                                                            wtCDR_fit = `CDR, wt DHS`,
+                                                            CDR_fit = CDR,
+                                                            TS_fit = TS, 
+                                                            FB_fit = FB)
+raw_to_merge = prob_stay_all_w_cov %>% mutate(DHS = 1 - ps_DHS,
+                                              FB = 1 - ps_FB,
+                                              wtFB = 1 - ps_FB_wtDHS,
+                                              CDR = 1 - ps_CDR,
+                                              TS = 1 - ps_TS,
+                                              wtCDR = 1 - ps_CDR_wtDHS) %>%
+  dplyr::select(district, DHS, FB, wtFB, CDR, TS, wtCDR)
+comp_fitted_raw_dep = merge(comp_fitted_raw_dep, raw_to_merge, by.x = "districts", by.y = "district", all = TRUE)
+
+# get difference between fitted and not fitted in percentage
+comp_fitted_raw_dep = comp_fitted_raw_dep %>% mutate(perc_DHS = (DHS_fit - DHS)/DHS*100,
+                                                     perc_wtFB = (wtFB_fit - wtFB)/wtFB*100,
+                                                     perc_wtCDR = (wtCDR_fit - wtCDR)/wtCDR*100,
+                                                     perc_CDR = (CDR_fit - CDR)/CDR*100,
+                                                     perc_TS = (TS_fit - TS)/TS*100,
+                                                     perc_FB = (FB_fit - FB)/FB*100)
+# only keep differences
+comp_fitted_raw_dep = comp_fitted_raw_dep %>% dplyr::select(districts, perc_DHS, perc_wtFB, perc_wtCDR, perc_CDR, perc_TS, perc_FB)
+comp_fitted_raw_dep_long = comp_fitted_raw_dep %>% pivot_longer(cols = -c(districts), names_to = "dataset", values_to = "percent_diff")
+
+comp_fitted_raw_dep_long = comp_fitted_raw_dep_long %>% mutate(dataset_label = 
+  case_when(dataset == "perc_DHS" ~ "DHS",
+            dataset == "perc_wtFB" ~ "Weighted Facebook",
+            dataset == "perc_wtCDR" ~ "Weighted Mobile phone",
+            dataset == "perc_CDR" ~ "Mobile phone",
+            dataset == "perc_TS" ~ "Travel survey",
+            dataset == "perc_FB" ~ "Facebook"))
+
+comp_fitted_raw_dep_long %>% ggplot(aes(x = dataset_label, y = percent_diff, fill = dataset_label)) + 
+  geom_boxplot() + 
+  #geom_jitter(size = 0.7)+
+  theme_minimal() +ylab("Percent")+xlab("")+
+    scale_fill_aaas(name = "Dataset") + 
+      theme(text = element_text(size = 20),
+            axis.text = element_text(size = 14)) +
+  guides(fill=FALSE)
+ggsave("figures/boxplot_change_weighting.pdf",  dpi=700)
+
+```
+
+Show province-level estimates and select few districts
+
+```{r}
+combo_fitted_travel_wcov = merge(combo_fitted_travel_wcov, districts.full %>% dplyr::select(district_map, province_2018), all.x=TRUE, by.x = "districts", by.y = "district_map")
+
+combo_fitted_travel_wcov = combo_fitted_travel_wcov %>% mutate(dataset_label = 
+  case_when(dataset == "DHS" ~ "DHS",
+            dataset == "FB, wt DHS" ~ "Weighted \nFacebook",
+            dataset == "CDR, wt DHS" ~ "Weighted \nMobile phone",
+            dataset == "CDR" ~ "Mobile phone",
+            dataset == "TS" ~ "Travel survey",
+            dataset == "FB" ~ "Facebook"))
+# make boxplots by province
+combo_fitted_travel_wcov %>% filter(is.na(pop)==FALSE) %>% 
+  ggplot(aes(x = dataset_label, y = mean, fill = dataset_label)) + 
+  #geom_boxplot()+
+  geom_boxplot(outlier.shape = NA) + 
+  #geom_jitter(size = 0.7, color = "gray")+
+  facet_wrap(~province_2018, nrow = 3)+
+  theme_minimal() +ylab("Probability")+xlab("")+
+    scale_fill_aaas(name = "Dataset") + 
+    scale_y_continuous(limits = c(0, 0.25), breaks = c(0, 0.1, 0.2))+
+      theme(text = element_text(size = 20),
+            axis.text = element_text(size = 14),
+        axis.text.x = element_text(angle = 45, hjust = .5, vjust = .5, face = "plain"),
+            panel.spacing = unit(2, "lines")) +
+  guides(fill=FALSE)
+
+    
+ggsave("figures/boxplot_fitted_prob_province.pdf",  dpi=700)
+
+
+# now only keep those with the largest differences, plus choma and ndola
+combo_fitted_travel_wcov %>% filter(is.na(pop)==FALSE) %>% 
+  filter(districts %in%  c("choma", "ndola","chibombo", "chilanga", "chongwe", "kafue", "chisamba", "masaiti", "chikankanta", "rufunsa", "lavushimanda")) %>% ggplot(aes(x = districts, fill = dataset_label, y = mean)) +
+  geom_bar(aes(color = dataset_label), stat = "identity", color = "black", position = position_dodge())+
+  geom_errorbar(aes(ymin = ll, ymax = ul), width = 0.2, position = position_dodge(0.9))+
+  theme_minimal() + xlab("District") + ylab("Probability") +
+    scale_color_aaas(name = "Dataset") + 
+  scale_fill_aaas(name = "Dataset")+
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(color = "grey20", size = 16, angle = 90, hjust = .5, vjust = .5, face = "plain")) 
+ggsave("figures/select_districts_travel_fitted.pdf",  dpi=700, width = 11, height = 9)
+
+# NOW ONLY KEEP FOR THE 5 TOP DIFFERENCES + CHOMA + NDOLA
+prob_stay_select_fit = combo_fitted_travel_wcov %>% dplyr::select(districts, dataset_label, mean)
+prob_stay_select_fit = prob_stay_select_fit %>% rename(mean_prob = mean) %>% group_by(dataset_label) %>% mutate(row = row_number())
+pstemp = prob_stay_select_fit %>% pivot_wider(values_from = mean_prob, names_from = dataset_label) %>% dplyr::select(-c(row))
+pstemp = pstemp  %>% ungroup() %>% rowwise() %>% mutate(min_ps = min(DHS, `Weighted \nFacebook`, `Weighted \nMobile phone`, `Mobile phone`, `Travel survey`, Facebook, na.rm=TRUE),
+                                                max_ps = max(DHS, `Weighted \nFacebook`, `Weighted \nMobile phone`, `Mobile phone`, `Travel survey`, Facebook, na.rm=TRUE))
+# calculate difference
+pstemp = pstemp %>% rowwise() %>% mutate(diff = max_ps - min_ps) %>% filter(is.na(districts)==FALSE)
+# identify the top 5
+top5_diff_fit = pstemp %>% arrange(desc(diff)) %>% ungroup() %>% slice(1:5)
+
+ps1_fit = combo_fitted_travel_wcov %>% filter(districts %in% 
+                                              c("choma", "ndola", top5_diff_fit$districts))
+ps1_fit$upper_dist = str_to_title(ps1_fit$districts)
+# arrange - chome and ndola separately
+ps1_fit$upper_dist  = factor(ps1_fit$upper_dist,
+                         levels = c("Choma", "Ndola", unique(ps1_fit$upper_dist)[!unique(ps1_fit$upper_dist) %in% c("Choma", "Ndola")]))
+ps1_fit$num =  unclass(ps1_fit$upper_dist) 
+myLoc <- 
+  (which(levels(ps1_fit$upper_dist) == "Ndola") +
+     which(levels(ps1_fit$upper_dist) == "Chibombo")) / 
+  2
+
+# merge with ps1 to get the exact value
+ps1_fit = merge(ps1_fit, ps1 %>% dplyr::select(district, dataset_label, value), by.x = c("districts", "dataset_label"), by.y = c("district", "dataset_label"), all.x=TRUE)
+ggplot(ps1_fit, aes(x = upper_dist, fill = dataset_label, color = dataset_label)) +
+  geom_point(aes( y = value.x), color = "black", position = position_dodge(0.9))+
+  geom_bar(aes(y = mean, fill = dataset_label),  stat = "identity", position = position_dodge())+
+    geom_errorbar(aes(ymin = ll, ymax = ul), width = 0.2, color = "black", position = position_dodge(0.9))+
+ # geom_point(aes(y = value, color = dataset_label), position = position_dodge())+
+  theme_minimal() + xlab("District") + ylab("Probability of departure") +
+    scale_color_aaas(name = "Dataset") + 
+  scale_fill_aaas(name = "Dataset")+
+  theme(text = element_text(size = 20),
+        axis.text.x = element_text(color = "grey20", size = 16, angle = 90, hjust = .5, vjust = .5, face = "plain")) +
+      geom_vline(aes(xintercept = myLoc), linetype = "dashed", colour = "grey20", size = 1)
+ggsave("figures/select_districts_travel_fitted_v2.pdf",  dpi=700, width = 11, height = 7)
+
+
+
+
+
+
+
+
+# summarize precision
+combo_fitted_travel_wcov = combo_fitted_travel_wcov %>% mutate(prec = ul - ll)
+
+# make a histogram of probabilities
+ggplot(combo_fitted_travel_wcov %>% filter(is.na(pop)==FALSE), aes(x = prec, fill = dataset, color = dataset)) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 60)+
+  theme_minimal() + xlab("Precision") + ylab("Frequency")+
+  scale_fill_aaas(name = "Dataset")+
+  scale_color_aaas(name = "Dataset")+
+  theme(text = element_text(size = 30),
+                   axis.text = element_text(size = 24))
+
+# make a barplot for the two
+(combo_fitted_travel_wcov %>% filter(is.na(pop)==FALSE)) %>% 
+         ggplot(aes(x = dataset_label, y = prec, fill = dataset_label)) + 
+  geom_boxplot() + 
+  geom_jitter(size = 0.7, aes(color = dataset_label))+
+  theme_minimal() +ylab("Precision")+xlab("")+
+    scale_color_aaas(name = "Dataset") + 
+      theme(text = element_text(size = 20),
+            axis.text = element_text(size = 14)) +
+  guides(fill=FALSE)
+
+
+ggsave("figures/precision_fitted.pdf",  dpi=700)
+```
+
+# Supplement for trip counts in diffusion
+
+```{r}
+# CDR
+M_diag = readRDS('../data/OD_data_diag.rds')
+M_diag = data.matrix(as.data.frame(M_diag))
+
+M2 = as.matrix(M_diag, dimnames = c("origin", "destination"))
+diag(M2) = NA # null out diagonals
+
+# Facebook
+M_fb2 = read.csv("outputs/feb11/M_fb.csv")
+rownames(M_fb2) = M_fb2$X
+M_fb2 = M_fb2 %>% dplyr::select(-X)
+diag(M_fb2) <- NA
+
+# Travel survey
+mob_mat_TS = readRDS("data/mobility_mat_travelsurvey.RDS")
+M2_TS = as.matrix(mob_mat_TS$M, dimnames = c("origin", "destination"))
+
+
+# make into vectors and combine
+cdr_vect = as.vector(t(M2))
+fb_vect = as.vector(t(M_fb2))
+ts_vect = as.vector(t(M2_TS))
+l_max = max(length(cdr_vect), length(fb_vect), length(ts_vect))
+length(cdr_vect) = l_max
+length(fb_vect) = l_max
+length(ts_vect) = l_max
+trips_out = data.frame(cdr = cdr_vect, fb = fb_vect, ts = ts_vect)
+trips_out = trips_out %>% pivot_longer(cols = c(cdr, fb, ts), names_to = "dataset", values_to = "trips")
+trips_out = trips_out %>% mutate(dataset_label = case_when(dataset == "cdr"~ "Mobile phone",
+                                                           dataset == "fb"~ "Facebook",
+                                                           dataset == "ts"~ "Travel survey"))
+
+# now get histograms
+# make a histogram of trips
+ggplot(trips_out, aes(x = trips, fill = dataset_label)) +
+  geom_histogram(color = "black", bins = 90) +
+  #geom_density(alpha = .3, aes(y = ..scaled..))+  
+  theme_minimal() + xlab("Trips") +  ylab("Counts")+
+  geom_vline(data = plyr::ddply(trips_out, "dataset_label", summarize, wavg = mean(trips, na.rm=TRUE)), aes(xintercept=wavg), linetype = "dashed", color = "gray") +
+  facet_wrap(~dataset_label, nrow = 3, scales = "free") + 
+  scale_fill_aaas() + 
+    theme(text = element_text(size = 20))+
+  guides(fill = FALSE) 
+
+```
+
+# Supplement - diffusion - trips from Ndola - make a map
+```{r}
+cdr_ndola = as.data.frame(M2["ndola",])
+fb_ndola = as.data.frame(M_fb["ndola",])
+# replace NAs with 0s
+fb_ndola[is.na(fb_ndola)] = 0
+ts_ndola = as.data.frame(M2_TS["ndola",])
+all_ndola = plyr::join(cdr_ndola %>% mutate(district = rownames(cdr_ndola)), 
+                       fb_ndola %>% mutate(district = rownames(fb_ndola)),
+                       by = "district")
+all_ndola = plyr::join(all_ndola, 
+                       ts_ndola %>% mutate(district = rownames(ts_ndola)),
+                       by = "district")
+names(all_ndola) = c("Mobile phone data", "District", "Facebook", "Travel survey")
+
+# drop trips from ndola
+all_ndola = all_ndola %>% filter(District != "ndola")
+zamtel_cov = merge(shp_zam, all_ndola, by.x = "district_lower", by.y = "District", all.x = TRUE)
+zamtel_cov@data$id = rownames(zamtel_cov@data)
+new_zm <- fortify(zamtel_cov, region = "id")
+newdf_zm <- merge(new_zm, zamtel_cov@data, by = "id")
+
+ndola_cdr <- ggplot() +
+  #geom_line(aes(x = long, y = lat), color = "gray")+
+  geom_polygon(data = newdf_zm, aes(fill = `Mobile phone data`,
+                                 x = long, 
+                                 y = lat, 
+                                 group = group),
+                                color = "grey",size = 0.2) +
+  scale_fill_material("purple",  na.value="grey95", name = "Trips from Ndola")+
+  #geom_point(data = ndola_point, aes(x = x, y = y), color = "red") +
+ ggtitle("Trips from Ndola, mobile phone data") + theme(plot.title = element_text(hjust =0.5))+ theme_void()+
+  coord_map() +
+  theme(text = element_text(size = 24))
+
+ndola_fb <- ggplot() +
+  #geom_line(aes(x = long, y = lat), color = "gray")+
+  geom_polygon(data = newdf_zm, aes(fill = `Facebook`,
+                                 x = long, 
+                                 y = lat, 
+                                 group = group),
+                                color = "grey",size = 0.2) +
+  scale_fill_material("purple",  na.value="grey95", name = "Trips from Ndola")+
+  #geom_point(data = ndola_point, aes(x = x, y = y), color = "red") +
+ ggtitle("Trips from Ndola, Facebook data") + theme(plot.title = element_text(hjust =0.5))+ theme_void()+
+  coord_map() +
+  theme(text = element_text(size = 24))
+
+ndola_ts <- ggplot() +
+  #geom_line(aes(x = long, y = lat), color = "gray")+
+  geom_polygon(data = newdf_zm, aes(fill = `Travel survey`,
+                                 x = long, 
+                                 y = lat, 
+                                 group = group),
+                                color = "grey",size = 0.2) +
+  scale_fill_material("purple",  na.value="grey95", name = "Trips from Ndola")+
+  #geom_point(data = ndola_point, aes(x = x, y = y), color = "red") +
+ ggtitle("Trips from Ndola, Travel survey") + theme(plot.title = element_text(hjust =0.5))+ theme_void()+
+  coord_map() +
+  theme(text = element_text(size = 24))
+
+cowplot::plot_grid(ndola_cdr, ndola_fb, ndola_ts, ncol = 3)
+
+```
+
+# Figure 5
+
+```{r}
+# try panels by what's used as prior
+
+# read in models
+mod_exp = readRDS("outputs/feb11/mod_exp.rds")
+mod_exp_FB = readRDS("outputs/feb11/mod_exp_FB.rds")
+mod_exp_TS = readRDS("outputs/feb11/mod_exp_TS.rds")
+mod_exp_TS_priorCDR = readRDS("outputs/feb11/mod_exp_TS_priorCDR.rds")
+mod_exp_TS_priorFB = readRDS("outputs/feb11/mod_exp_TS_priorFB.rds")
+mod_exp_CDR_priorFB = readRDS("outputs/feb11/mod_exp_CDR_priorFB.rds")
+mod_exp_CDR_priorTS = readRDS("outputs/feb11/mod_exp_CDR_priorTS.rds")
+mod_exp_FB_priorTS = readRDS("outputs/feb11/mod_exp_FB_priorTS.rds")
+mod_exp_FB_priorCDR = readRDS("outputs/feb11/mod_exp_FB_priorCDR.rds")
+
+coefs_raw_prior = rbind(mobility::summary(mod_exp) %>% mutate(dataset= "CDR", coef = rownames(mobility::summary(mod_exp))),
+                  mobility::summary(mod_exp_TS) %>% mutate(dataset="TS",  coef = rownames(mobility::summary(mod_exp_TS))),
+                  mobility::summary(mod_exp_FB) %>% mutate(dataset="FB",  coef = rownames(mobility::summary(mod_exp_FB))),
+                   mobility::summary(mod_exp_CDR_priorFB) %>% mutate(dataset="CDR, FB prior",  coef = rownames(mobility::summary(mod_exp_CDR_priorFB))),
+                   mobility::summary(mod_exp_CDR_priorTS) %>% mutate(dataset="CDR, TS prior",  coef = rownames(mobility::summary(mod_exp_CDR_priorTS))),                 
+                    mobility::summary(mod_exp_TS_priorCDR) %>% mutate(dataset="TS, CDR prior",  coef = rownames(mobility::summary(mod_exp_TS_priorCDR))),                   
+                    mobility::summary(mod_exp_TS_priorFB) %>% mutate(dataset="TS, FB prior",  coef = rownames(mobility::summary(mod_exp_TS_priorFB))),                  
+                     mobility::summary(mod_exp_FB_priorTS) %>% mutate(dataset="FB, TS prior",  coef = rownames(mobility::summary(mod_exp_FB_priorTS))),     
+                     mobility::summary(mod_exp_FB_priorCDR) %>% mutate(dataset="FB, CDR prior",  coef = rownames(mobility::summary(mod_exp_FB_priorCDR)))                   
+                  )
+
+ # create variable that indicates prior
+ coefs_raw_prior = coefs_raw_prior %>% mutate(prior = case_when(
+   dataset %in% c("CDR", "TS", "FB") ~ "No prior",
+   dataset %in% c("TS, CDR prior", "FB, CDR prior") ~ "Mobile phone prior",
+   dataset %in% c("TS, FB prior", "CDR, FB prior") ~ "Facebook prior",
+   dataset %in% c("FB, TS prior", "CDR, TS prior") ~ "Travel survey prior"
+ ))
+                                                
+                                            
+ # create variable that indicates sample
+  coefs_raw_prior = coefs_raw_prior %>% mutate(sample = case_when(
+    dataset %in% c("CDR", "CDR, FB prior", "CDR, TS prior") ~ "Mobile phone",
+    dataset %in% c("TS", "TS, FB prior", "TS, CDR prior") ~ "Travel survey",
+    dataset %in% c("FB", "FB, TS prior", "FB, CDR prior") ~ "Facebook")
+  )
+ 
+ coefs_raw_prior = coefs_raw_prior %>% mutate(coef_label = case_when(
+   coef == "omega_1" ~ "Origin population",
+   coef == "omega_2" ~ "Destination population",
+   coef == "delta" ~ "Distance"
+ ))
+ 
+ coefs_raw_prior = coefs_raw_prior %>% mutate(dataset_label = case_when(
+   dataset %in% "CDR"~ "Mobile phone",
+   dataset %in% "FB" ~ "Facebook",
+   dataset %in% "TS" ~ "Travel survey",
+   dataset %in% "CDR, TS prior" ~ "Mobile phone sample, \nTravel survey prior",
+   dataset %in% "CDR, FB prior" ~ "Mobile phone sample, \nFacebook prior",
+   dataset %in% "TS, CDR prior" ~ "Travel survey sample, \nMobile phone prior",
+   dataset %in% "TS, FB prior" ~ "Travel survey sample, \nFacebook prior",
+   dataset %in% "FB, CDR prior" ~ "Facebook sample, \nMobile phone prior",
+   dataset %in% "FB, TS prior" ~ "Facebook sample, \nTravel survey prior"
+ ))
+ 
+  coefs_raw_prior$dataset = factor(coefs_raw_prior$dataset, 
+                                  levels = unique(coefs_raw_prior$dataset), ordered = TRUE)
+ 
+   coefs_raw_prior$prior = factor(coefs_raw_prior$prior, 
+                                  levels = c("No prior", "Mobile phone prior", "Facebook prior", "Travel survey prior"), ordered = TRUE)
+  
+   # order so that omega_1 and omega_2 are first
+   coefs_raw_prior = coefs_raw_prior %>% filter(coef %in% c("omega_1", "omega_2", "delta"))
+   coefs_raw_prior$coef = factor(coefs_raw_prior$coef,
+                                 levels = c("omega_1", "omega_2", "delta"))
+   
+ggplot(coefs_raw_prior, aes(color = sample)) +
+  geom_point(aes(x = dataset_label, y = mean), size = 2)+
+  geom_errorbar(aes(x = dataset_label, ymin = `Q2.5`, ymax = `Q97.5`), width = 0.2, size = 1) + 
+  theme_bw() + ylab("Coefficient")+ xlab("Dataset")+
+  scale_color_aaas(name = "Sample dataset")+
+  facet_grid(coef_label ~ prior, scales = "free")+
+      theme(text = element_text(size = 30),
+            axis.text.x = element_text(size = 30, angle = 50, hjust = 1),
+            strip.text = element_text(size = 30), 
+            strip.background = element_blank())
+ggsave("figures/figure5.pdf",  dpi=700, width = 11, height = 9)
+
+# only show for distance coefficient, and only for mobile phone and travel survey prior
+ggplot(coefs_raw_prior %>% 
+         filter(coef %in% c("delta")) %>%
+         filter(prior %in% c("No prior", "Mobile phone prior", "Travel survey prior")), aes(color = sample)) +
+  geom_point(aes(x = dataset_label, y = mean), size = 2)+
+  geom_errorbar(aes(x = dataset_label, ymin = `Q2.5`, ymax = `Q97.5`), width = 0.2, size = 1) + 
+  theme_bw() + ylab("Coefficient")+ xlab("Dataset")+
+  scale_color_aaas(name = "Sample dataset")+
+  facet_grid(coef_label ~ prior, scales = "free")+
+      theme(text = element_text(size = 30),
+            axis.text.x = element_text(size = 30, angle = 50, hjust = 1),
+            strip.text = element_text(size = 30), 
+            strip.background = element_blank())
+
+# first, no priors
+ggplot(coefs_raw_prior %>% filter(coef %in% c("delta")) %>% filter(prior %in% c("No prior"))) + 
+  geom_point(aes(x = sample, y = mean, color = prior), size = 3)+
+    geom_errorbar(aes(x = sample, ymin = `Q2.5`, ymax = `Q97.5`, color = prior), width = 0.2, size = 1) + scale_color_aaas(name = "Prior dataset")+
+theme_bw() +ylab("Distance coefficient estimate") + xlab("Sample dataset") + 
+  theme(text = element_text(size = 30))
+  
+# add mobile phone prior
+ggplot(coefs_raw_prior %>% filter(coef %in% c("delta")) %>% 
+         filter(prior %in% c("No prior", "Mobile phone prior"))) + 
+  geom_point(aes(x = sample, y = mean, color = prior), size = 3)+
+    geom_errorbar(aes(x = sample, ymin = `Q2.5`, ymax = `Q97.5`, color = prior), width = 0.2, size = 1) + scale_color_aaas(name = "Prior dataset")+
+theme_bw() +ylab("Distance coefficient estimate") + xlab("Sample dataset") + 
+  theme(text = element_text(size = 30))
+
+# add travel survey prior
+ggplot(coefs_raw_prior %>% filter(coef %in% c("delta")) %>% 
+         filter(prior %in% c("No prior", "Travel survey prior"))) + 
+  geom_point(aes(x = sample, y = mean, color = prior), size = 3, alpha = 0.5)+
+    geom_errorbar(aes(x = sample, ymin = `Q2.5`, ymax = `Q97.5`, color = prior), width = 0.2, size = 1, alpha = 0.5) + scale_color_aaas(name = "Prior dataset")+
+theme_bw() +ylab("Distance coefficient estimate") + xlab("Sample dataset") + 
+  theme(text = element_text(size = 30))
+
+# add FB prior
+ggplot(coefs_raw_prior %>% filter(coef %in% c("delta")) %>% 
+         filter(prior %in% c("No prior", "Facebook prior"))) + 
+  geom_point(aes(x = sample, y = mean, color = prior), size = 3, alpha = 0.5)+
+    geom_errorbar(aes(x = sample, ymin = `Q2.5`, ymax = `Q97.5`, color = prior), width = 0.2, size = 1, alpha = 0.5) + scale_color_aaas(name = "Prior dataset")+
+theme_bw() +ylab("Distance coefficient estimate") + xlab("Sample dataset") + 
+  theme(text = element_text(size = 30))
+
+# look at omega_2
+ggplot(coefs_raw_prior %>% filter(coef %in% c("omega_2")) %>% 
+         filter(prior %in% c("No prior", "Travel survey prior"))) + 
+  geom_point(aes(x = sample, y = mean, color = prior), size = 3, alpha = 0.5)+
+    geom_errorbar(aes(x = sample, ymin = `Q2.5`, ymax = `Q97.5`, color = prior), width = 0.2, size = 1, alpha = 0.5) + scale_color_aaas(name = "Prior dataset")+
+theme_bw() +ylab("Destination population coefficient estimate") + xlab("Sample dataset") + 
+  theme(text = element_text(size = 30))
+
+# make one that shows distance coefficient only
+# replace Mobile phone with CDR
+coefs_raw_prior$prior_sub = gsub("Mobile phone", "CDR", coefs_raw_prior$prior)
+coefs_raw_prior$prior_sub = factor(coefs_raw_prior$prior_sub,
+                                   levels = c("No prior", "CDR prior", "Facebook prior", "Travel survey prior"))
+coefs_raw_prior$sample_sub = gsub("Mobile phone", "CDR", coefs_raw_prior$sample)
+coefs_raw_prior$sample_sub = factor(coefs_raw_prior$sample_sub,
+                                   levels = c("CDR", "Facebook", "Travel survey"))
+
+ggplot(coefs_raw_prior %>% filter(coef %in% c("delta")) ) + 
+  geom_point(aes(x = sample_sub, y = mean, color = prior_sub), size = 3, alpha = 1, position=position_dodge(width=0.5))+
+    geom_errorbar(aes(x = sample_sub, ymin = `Q2.5`, ymax = `Q97.5`, color = prior_sub), width = 0.2, size = 1, alpha = 1, position=position_dodge(width=0.5)) + scale_color_aaas(name = "Prior dataset")+
+theme_bw() +ylab("Distance coefficient estimate") + xlab("Sample dataset") + 
+  theme(text = element_text(size = 30))
+```
+
+
+# Measles simulations - Using Choma + Ndola seeds for initial infection
+```{r}
+
+run_scA_cn = read.csv("results/run_scA_cn.csv")
+run_scB_cn = read.csv("results/run_scB_cn.csv")
+run_scC_cn = read.csv("results/run_scC_cn.csv")
+run_scD_cn = read.csv("results/run_scD_cn.csv")
+run_scE_cn = read.csv("results/run_scE_cn.csv")
+run_scF_cn = read.csv("results/run_scF_cn.csv")
+run_scG_cn = read.csv("results/run_scG_cn.csv")
+run_scH_cn = read.csv("results/run_scH_cn.csv")
+run_scI_cn = read.csv("results/run_scI_cn.csv")
+run_scJ_cn = read.csv("results/run_scJ_cn.csv")
+run_scK_cn = read.csv("results/run_scK_cn.csv")
+run_scL_cn = read.csv("results/run_scL_cn.csv")
+run_scM_cn = read.csv("results/run_scM_cn.csv")
+
+all_runs_output_dd = rbind(run_scA_cn %>% mutate(dataset = "Dep Mobile phone, Diff Mobile phone"),
+                        run_scB_cn %>% mutate(dataset = "Dep weighted Mobile phone, Diff Mobile phone"),
+                        run_scC_cn %>% mutate(dataset = "Dep Facebook, Diff Facebook"),
+                        run_scD_cn %>% mutate(dataset = "Dep weighted Facebook, Diff Facebook"),
+                        run_scE_cn %>% mutate(dataset = "Dep Travel survey, Diff Travel survey"),
+                        run_scF_cn %>% mutate(dataset = "Dep Facebook, Diff Facebook with \nTravel survey prior"),
+                        run_scG_cn %>% mutate(dataset = "Dep pooled, Diff Mobile phone"),
+                        run_scH_cn %>% mutate(dataset = "Dep weighted pooled, Diff Mobile phone"),
+                        run_scI_cn %>% mutate(dataset = "Dep DHS, Diff Travel survey"),
+                        run_scJ_cn %>% mutate(dataset = "Dep DHS, Diff Facebook"),
+                        run_scK_cn %>% mutate(dataset = "Dep DHS, Diff Mobile phone"),
+                        run_scL_cn %>% mutate(dataset = "Dep pooled, Diff Facebook"),
+                        run_scM_cn %>% mutate(dataset = "Dep pooled, Diff Travel survey"))
+# join provinces
+all_runs_output_dd = merge(all_runs_output_dd, districts.full %>% dplyr::select(district_map, province_2018), all.x=TRUE, by.x = "district", by.y = "district_map")
+
+
+# plot proportion of districts with outbreaks by week
+   out_by_week_dd = all_runs_output_dd %>% mutate(Week = time * 2) 
+   out_by_week_dd = out_by_week_dd %>% group_by(dataset, district, run_index) %>% arrange(Week) %>% mutate(cumI = cumsum(I))
+   out_by_week_dd = out_by_week_dd %>% ungroup() %>% group_by(dataset, district, Week) %>% summarize(meanI = mean(I),
+                                                                               llI = quantile(I, probs = c(0.025)),
+                                                                               ulI = quantile(I, probs = c(0.975)),
+                                                                               mean_cumI = mean(cumI),
+                                                                               ll_cumI = quantile(cumI, probs = c(0.025)),
+                                                                               ul_cumI = quantile(cumI, probs = c(0.975)))
+   # mutate outbreak variable - 1 if ul>=1
+   out_by_week_dd = out_by_week_dd %>% mutate(outbreak = ifelse(mean_cumI>=1, 1, 0))
+   
+
+
+       # calculate proportion of districts with an outbreak at each week
+   out_by_week_dd = out_by_week_dd %>% ungroup() %>% group_by(dataset, Week) %>% summarize(prop_dist = sum(outbreak)/n())
+   
+   # plot proportion of districts with an outbreak
+   ggplot(out_by_week_dd, aes(x = Week, y = prop_dist, color = dataset))+
+     geom_line(size = 1)+
+       scale_color_igv()+theme_bw()+
+     ggtitle("Proportion of districts with outbreak")+
+     ylab("Proportion") + theme(text = element_text(size = 20)) 
+     
+  ggsave("figures/prop_intro_by_week.pdf", width = 11, height = 7,  dpi=700)
+
+  
+  
+    
+  # plot proportion of districts infected by week, first for raw datasets, then by diffusion
+        out_by_week_dd = out_by_week_dd %>% mutate(num_datasets = ifelse(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone", "Dep Facebook, Diff Facebook", "Dep Travel survey, Diff Travel survey"), "Single dataset", "Multiple datasets"
+      ))
+      out_by_week_dd = out_by_week_dd %>% mutate(dataset_label = case_when(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone") ~ "Mobile phone",
+        dataset %in% c("Dep Facebook, Diff Facebook") ~ "Facebook",
+        dataset %in% c("Dep Travel survey, Diff Travel survey") ~ "Travel survey"
+      ))
+   ggplot(out_by_week_dd %>% filter(num_datasets %in% "Single dataset") %>% filter(Week <=40), aes(x = Week, y = prop_dist, color = dataset_label))+
+     geom_line(size = 2)+
+       scale_color_igv(name = "Dataset")+theme_bw()+
+     ggtitle("Proportion of districts with introduction")+
+     ylab("Proportion") + theme(text = element_text(size = 30))   
+  
+   
+               # now plot them by which dataset is used for diffusion
+      out_by_week_dd = out_by_week_dd %>% mutate(diffusion_dataset = case_when(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone", "Dep weighted Mobile phone, Diff Mobile phone", "Dep DHS, Diff Mobile phone", "Dep weighted pooled, Diff Mobile phone", "Dep pooled, Diff Mobile phone") ~ "Mobile phone",
+        dataset %in% c("Dep Facebook, Diff Facebook", "Dep DHS, Diff Facebook", "Dep weighted Facebook, Diff Facebook", "Dep Facebook, Diff Facebook with \nTravel survey prior", "Dep pooled, Diff Facebook") ~ "Facebook",
+        dataset %in% c("Dep Travel survey, Diff Travel survey", "Dep DHS, Diff Travel survey", "Dep pooled, Diff Travel survey") ~ "Travel survey"
+      ))            
+          # plot datasets split by diffusion dataset
+   ggplot(out_by_week_dd %>% filter(Week <=40), aes(x = Week, y = prop_dist, color = dataset))+
+     geom_line(size = 1)+
+       scale_color_igv(name = "Dataset")+theme_bw()+
+     ggtitle("Proportion of districts with introduction")+
+     ylab("Proportion") + theme(text = element_text(size = 20)) +
+     facet_wrap(~diffusion_dataset)
+   
+   
+   
+   
+ 
+      # nationwide epi curve by scenario
+   epi_nat_dd = all_runs_output_dd %>% mutate(Week = time * 2) 
+   epi_nat_dd = epi_nat_dd %>% group_by(dataset, run_index, Week) %>% summarize(totalI = sum(I))
+   epi_nat_dd = epi_nat_dd %>% ungroup() %>% group_by(dataset, Week) %>% summarize(medianI = median(totalI),
+                                                                                     meanI = mean(totalI),
+                                                                                                                                                 llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)))
+   
+   ## first get nationwide epi curves for raw scenarios -- use cumulative
+   epi_nat_dd = epi_nat_dd %>% group_by(dataset) %>% mutate(cumI_mean = cumsum(meanI),
+                                                              cumI_median = cumsum(medianI),
+                                                              cumI_ll = cumsum(llI),
+                                                              cumI_ul = cumsum(ulI))
+   # incidence curve for all scenarios
+   ggplot(epi_nat_dd %>% filter(Week <=40), aes(x = Week, y = medianI, color = dataset))+
+         geom_ribbon(aes(ymin = llI, ymax = ulI, fill=dataset),color=NA, alpha = 0.1)+
+     geom_line(size = 1, alpha = 0.7)+
+       scale_color_igv()+
+     scale_fill_igv() + theme_bw()+
+     ggtitle("Measles cases")+
+     ylab("Cases") + theme(text = element_text(size = 20)) 
+   
+   # cumulative
+      ggplot(epi_nat_dd %>% filter(Week <=40), aes(x = Week, y = cumI_mean, color = dataset))+
+         geom_ribbon(aes(ymin = cumI_ll, ymax = cumI_ul, fill=dataset),color=NA, alpha = 0.1)+
+     geom_line(size = 1, alpha = 0.7)+
+       scale_color_igv()+
+     scale_fill_igv() + theme_bw()+
+     ggtitle("Measles cases")+
+     ylab("Cases") + theme(text = element_text(size = 20)) 
+      
+      
+      ## now split them into panels
+      epi_nat_dd = epi_nat_dd %>% mutate(num_datasets = ifelse(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone", "Dep Facebook, Diff Facebook", "Dep Travel survey, Diff Travel survey"), "Single dataset", "Multiple datasets"
+      ))
+      epi_nat_dd = epi_nat_dd %>% mutate(dataset_label = case_when(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone") ~ "Mobile phone",
+        dataset %in% c("Dep Facebook, Diff Facebook") ~ "Facebook",
+        dataset %in% c("Dep Travel survey, Diff Travel survey") ~ "Travel survey"
+      ))
+      
+      # plot raw datasets only
+            ggplot(epi_nat_dd %>% filter(Week<=40) %>% filter(num_datasets == "Single dataset"), aes(x = Week, y = cumI_mean, color = dataset_label))+
+         geom_ribbon(aes(ymin = cumI_ll, ymax = cumI_ul, fill=dataset_label),color=NA, alpha = 0.1)+
+     geom_line(size = 1, alpha = 0.7)+
+       scale_color_igv(name = "Dataset")+
+     scale_fill_igv(name = "Dataset") + theme_bw()+
+     ggtitle("Cumulative cases")+
+     ylab("Cases") + theme(text = element_text(size = 20)) 
+            
+            # now plot them by which dataset is used for diffusion
+      epi_nat_dd = epi_nat_dd %>% mutate(diffusion_dataset = case_when(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone", "Dep weighted Mobile phone, Diff Mobile phone", "Dep DHS, Diff Mobile phone", "Dep weighted pooled, Diff Mobile phone", "Dep pooled, Diff Mobile phone") ~ "Mobile phone diffusion",
+        dataset %in% c("Dep Facebook, Diff Facebook", "Dep DHS, Diff Facebook", "Dep weighted Facebook, Diff Facebook", "Dep Facebook, Diff Facebook with \nTravel survey prior", "Dep pooled, Diff Facebook") ~ "Facebook diffusion",
+        dataset %in% c("Dep Travel survey, Diff Travel survey", "Dep DHS, Diff Travel survey", "Dep pooled, Diff Travel survey") ~ "Travel survey"
+      ))            
+          # plot datasets split by diffusion dataset
+                  ggplot(epi_nat_dd %>% filter(Week <=40), aes(x = Week, y = cumI_mean, color = dataset))+
+         geom_ribbon(aes(ymin = cumI_ll, ymax = cumI_ul, fill=dataset),color=NA, alpha = 0.1)+
+     geom_line(size = 1, alpha = 0.7)+
+       scale_color_igv(name = "Dataset")+
+     scale_fill_igv(name = "Dataset") + theme_bw()+
+     ggtitle("Cumulative cases")+
+     ylab("Cases") + theme(text = element_text(size = 20))  + 
+                    facet_wrap(~diffusion_dataset)
+            
+   
+      # nationwide epi curve by scenario
+   epi_nat_dd = all_runs_output_dd %>% mutate(Week = time * 2) 
+   epi_nat_dd = epi_nat_dd %>% group_by(dataset, run_index, Week) %>% summarize(totalI = sum(I))
+   epi_nat_dd = epi_nat_dd %>% ungroup() %>% group_by(dataset, Week) %>% summarize(medianI = median(totalI),
+                                                                                                                                                 llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)))
+   ggplot(epi_nat_dd, aes(x = Week, y = medianI, color = dataset))+
+         geom_ribbon(aes(ymin = llI, ymax = ulI, fill=dataset),color=NA, alpha = 0.2)+
+     geom_line()+
+       scale_color_igv()+
+     scale_fill_igv() + theme_bw()+
+     ggtitle("Measles cases")+
+     ylab("Cases") + theme(text = element_text(size = 20)) 
+   
+   
+   
+ # get total cases by province
+  sum_nat_dd = all_runs_output_dd %>% mutate(weeks = time * 2) %>% group_by(dataset, province_2018, run_index, weeks) %>% summarize(totalI = sum(I))
+  sum_nat_dd = sum_nat_dd %>% ungroup() %>% group_by(dataset, province_2018, weeks) %>% summarize(meanI = mean(totalI),
+                                                                   llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)),
+                                                                   medianI = median(totalI))
+    # overall
+    sum_nat_tot_dd = all_runs_output_dd %>% mutate(weeks = time * 2) %>% group_by(dataset, run_index) %>% summarize(totalI = sum(I))
+  sum_nat_tot_dd = sum_nat_tot_dd %>% ungroup() %>% group_by(dataset) %>% summarize(meanI = mean(totalI),
+                                                                   llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)),
+                                                                   medianI = median(totalI))
+  
+  
+  sum_nat_tot_dd = sum_nat_tot_dd %>% mutate(meanI = round(meanI),
+                            llI = round(llI),
+                            ulI = round(ulI),
+                            medianI = round(medianI)) 
+ sum_nat_tot_dd %>% flextable()
+  # plot number of cases
+  sum_nat_tot_dd %>% ggplot(aes(x = dataset, y = meanI)) + 
+    geom_point() + 
+    geom_errorbar(aes(ymin = llI, ymax = ulI), width = 0.2) + 
+    scale_color_igv() + theme_bw() + 
+        theme(axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"))+
+    ggtitle("Cumulative number of cases") + ylab("Cases")
+  
+  # plot mean number of infections nationwide  onward by province
+  totalI_plot_dd = ggplot(sum_nat_dd , aes(x=weeks, y=medianI, color = dataset)) +
+    geom_ribbon(aes(ymin = llI, ymax = ulI, fill=dataset),color=NA, alpha = 0.2)+
+        geom_line() +
+    xlab("Weeks") + 
+    ylab("Measles cases") +
+    theme_classic() +
+    theme(axis.text.x = element_text(size = 16),axis.text.y = element_text(size = 16),strip.text=element_text(size=16))  +
+    theme(plot.title = element_text(size = 16, hjust = 0.5))+
+       scale_color_igv()+
+     scale_fill_igv() +
+    facet_wrap(~province_2018, scales = "free")
+
+ # get total number of cases per district - Chmoa and Ndola only
+      sum_nat_tot_dd = all_runs_output_dd %>%  filter(district %in% c("choma", "ndola", "lusaka")) %>% mutate(weeks = time * 2) %>% group_by(dataset, district, run_index) %>% summarize(totalI = sum(I))
+  sum_nat_tot_dd = sum_nat_tot_dd %>% ungroup() %>% group_by(dataset, district) %>% summarize(meanI = mean(totalI),
+                                                                   llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)),
+                                                                   medianI = median(totalI))
+  
+  sum_nat_tot_dd = sum_nat_tot_dd %>% mutate(meanI = round(meanI),
+                            llI = round(llI),
+                            ulI = round(ulI),
+                            medianI = round(medianI)) 
+  sum_nat_tot_dd %>% flextable()
+  
+    # plot number of cases in choma + ndola
+  sum_nat_tot_dd %>% ggplot(aes(x = dataset, y = meanI)) + 
+    geom_point() + 
+    geom_errorbar(aes(ymin = llI, ymax = ulI), width = 0.2) + 
+    scale_color_igv() + theme_bw() + 
+        theme(axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"))+
+    ggtitle("Cumulative number of cases") + ylab("Cases") + 
+    facet_wrap(~district, nrow = 3, scales="free_y")
+   
+```
+
+Look at time to introduction 
+```{r}
+# mobile phone
+out_A = plots_post_run(runs_output = run_scA_cn %>% dplyr::select(-c(X)), 
+                                    time_max = 36)
+
+# Facebook
+out_C = plots_post_run(runs_output = run_scC_cn %>% dplyr::select(-c(X)), 
+                                    time_max = 36)
+
+# travel survey
+out_E = plots_post_run(runs_output = run_scE_cn %>% dplyr::select(-c(X)), 
+                                    time_max = 36)
+
+
+# median time to introductions
+prow_cn <- cowplot::plot_grid(out_A[[5]] + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + theme(legend.position = "none") + ggtitle("CDR"),
+                           out_C[[5]] + theme(legend.position = "none") + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + ggtitle("Facebook"),
+                           out_E[[5]] +  theme(legend.position = "none") + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + ggtitle("Travel survey"),
+                           align = 'vh',
+                           nrow = 1)
+
+
+```
+
+
+
+## Compare ranks of districts - by probability of introduction
+```{r}
+# get probability of introduction for each district
+
+
+prob_intro_dd = all_runs_output_dd %>% ungroup()  %>% group_by(dataset,district, run_index) %>% arrange(time) %>% mutate(cumI = cumsum(I)) %>% filter(time == max(time)) # only keep last time 
+prob_intro_dd = prob_intro_dd %>% group_by(dataset, district) %>% summarize(prob_intro = sum(cumI>=1)/n())
+
+# first, just look at CDR only, survey data only, and FB only
+prob_intro_short = prob_intro_dd %>% filter(dataset %in% c("Dep Facebook, Diff Facebook", "Dep Travel survey, Diff Travel survey", "Dep Mobile phone, Diff Mobile phone"))
+# calculate rank
+prob_intro_short = prob_intro_short %>% ungroup() %>% group_by(dataset) %>% mutate(rank_prob_intro = rank(-c(prob_intro)))
+# make into wide
+prob_intro_short_wide = prob_intro_short %>% dplyr::select(-c(prob_intro)) %>% pivot_wider(id_cols = district, names_from = dataset, values_from = rank_prob_intro)
+
+# make a plot
+# CDR vs travel survey
+ggplot(prob_intro_short_wide, aes(x = `Dep Mobile phone, Diff Mobile phone`)) + 
+  geom_line(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   geom_point(aes(y = `Dep Travel survey, Diff Travel survey`), color = "darkgreen")+
+  theme_minimal()+
+  # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Mobile phone rank") + ylab("Travel survey rank")+
+  #theme(axis.text.x = element_text(size = 14),axis.text.y = element_text(size = 14))+
+  theme(text = element_text(size = 20))
+
+
+  
+# CDR vs FB
+ggplot(prob_intro_short_wide, aes(x = `Dep Mobile phone, Diff Mobile phone`)) + 
+  geom_line(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+  geom_point(aes(y = `Dep Facebook, Diff Facebook`), color = "blue")+
+  theme_minimal()+
+    # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Mobile phone rank") + ylab("Facebook rank")+
+    theme(text = element_text(size = 20))
+
+# FB vs travel survey
+# CDR vs FB
+ggplot(prob_intro_short_wide, aes(x = `Dep Facebook, Diff Facebook`)) + 
+  geom_line(aes(y = `Dep Facebook, Diff Facebook`), color = "blue")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+  geom_point(aes(y = `Dep Travel survey, Diff Travel survey`), color = "darkgreen")+
+  theme_minimal()+
+    # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Facebook rank") + ylab("Travel survey rank")+
+    theme(text = element_text(size = 20))
+
+# make a table with quantiles
+prob_intro_short_wide = prob_intro_short_wide %>% mutate(quantile_CDR = ntile(`Dep Mobile phone, Diff Mobile phone`, 3),
+                                                         quantile_TS = ntile(`Dep Travel survey, Diff Travel survey`, 3),
+                                                         quantile_FB = ntile(`Dep Facebook, Diff Facebook`, 3))
+ftable(prob_intro_short_wide$quantile_CDR, prob_intro_short_wide$quantile_TS, prob_intro_short_wide$quantile_FB)
+ftable(prob_intro_short_wide$quantile_CDR, prob_intro_short_wide$quantile_TS)
+
+cor(prob_intro_short_wide$quantile_CDR, prob_intro_short_wide$quantile_TS)
+cor(prob_intro_short_wide$quantile_CDR, prob_intro_short_wide$quantile_FB)
+cor(prob_intro_short_wide$quantile_TS, prob_intro_short_wide$quantile_FB)
+
+```
+
+## By mean time to introduction
+
+```{r}
+prob_time_intro_short = all_runs_output_dd %>% filter(dataset %in% c("Dep Facebook, Diff Facebook", "Dep Travel survey, Diff Travel survey", "Dep Mobile phone, Diff Mobile phone"))
+   prob_time_intro_short = prob_time_intro_short %>% mutate(Week = time * 2) 
+   prob_time_intro_short = prob_time_intro_short %>% group_by(dataset, district, run_index) %>% arrange(Week) %>% mutate(cumI = cumsum(I))
+   prob_time_intro_short = prob_time_intro_short %>% ungroup() %>% group_by(dataset, district, Week) %>% summarize(meanI = mean(I),
+                                                                               llI = quantile(I, probs = c(0.025)),
+                                                                               ulI = quantile(I, probs = c(0.975)),
+                                                                               mean_cumI = mean(cumI),
+                                                                               ll_cumI = quantile(cumI, probs = c(0.025)),
+                                                                               ul_cumI = quantile(cumI, probs = c(0.975)))
+   # mutate outbreak variable - 1 if mean_cumI>=1
+   prob_time_intro_short = prob_time_intro_short %>% mutate(outbreak = ifelse(mean_cumI>=1, 1, 0))
+   prob_time_intro_short = prob_time_intro_short %>% group_by(dataset, district) %>% 
+     mutate(ever_outbreak = ifelse(max(outbreak)==0, 0, 1))
+   prob_time_intro_short = prob_time_intro_short %>% group_by(dataset, district) %>%
+     filter(ever_outbreak == 0 | (ever_outbreak ==1 & outbreak == 1)) # keep only those that didn't have an outbreak and only those that had an outbreak for the times when it had an outbreak
+   # now only keep the first occurence
+   prob_time_intro_short = prob_time_intro_short %>% group_by(dataset, district) %>%
+     arrange(Week) %>% slice(1)
+   # if never outbreak, then set week to 100
+   prob_time_intro_short = prob_time_intro_short %>% mutate(time_intro = ifelse(ever_outbreak == 0, 100, Week))
+   
+   # now create a ranking
+   prob_time_intro_short = prob_time_intro_short %>% group_by(dataset) %>% 
+     mutate(rank_intro_time = rank(time_intro))
+
+# make into wide
+prob_time_intro_short_wide = prob_time_intro_short %>% ungroup() %>% dplyr::select(c(dataset, district, rank_intro_time)) %>% pivot_wider(id_cols = district, names_from = dataset, values_from = rank_intro_time)
+
+# make a plot
+# CDR vs travel survey
+ggplot(prob_time_intro_short_wide, aes(x = `Dep Mobile phone, Diff Mobile phone`)) + 
+  geom_line(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   geom_jitter(aes(y = `Dep Travel survey, Diff Travel survey`), color = "darkgreen", alpha = 0.75)+
+  theme_minimal()+
+  # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Mobile phone rank") + ylab("Travel survey rank")+
+  #theme(axis.text.x = element_text(size = 14),axis.text.y = element_text(size = 14))+
+  theme(text = element_text(size = 20))
+
+
+  
+# CDR vs FB
+ggplot(prob_time_intro_short_wide, aes(x = `Dep Mobile phone, Diff Mobile phone`)) + 
+  geom_line(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+  geom_jitter(aes(y = `Dep Facebook, Diff Facebook`), color = "blue", alpha = 0.75)+
+  theme_minimal()+
+    # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Mobile phone rank") + ylab("Facebook rank")+
+    theme(text = element_text(size = 20))
+
+# FB vs travel survey
+# CDR vs FB
+ggplot(prob_time_intro_short_wide, aes(x = `Dep Facebook, Diff Facebook`)) + 
+  geom_line(aes(y = `Dep Facebook, Diff Facebook`), color = "blue")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+  geom_jitter(aes(y = `Dep Travel survey, Diff Travel survey`), color = "darkgreen", alpha = 0.75)+
+  theme_minimal()+
+    # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Facebook rank") + ylab("Travel survey rank")+
+    theme(text = element_text(size = 20))
+
+# make a table with quantiles
+prob_time_intro_short_wide = prob_time_intro_short_wide %>% mutate(quantile_CDR = ntile(`Dep Mobile phone, Diff Mobile phone`, 3),
+                                                         quantile_TS = ntile(`Dep Travel survey, Diff Travel survey`, 3),
+                                                         quantile_FB = ntile(`Dep Facebook, Diff Facebook`, 3))
+ftable(prob_time_intro_short_wide$quantile_CDR, prob_time_intro_short_wide$quantile_TS, prob_time_intro_short_wide$quantile_FB)
+
+
+cor(prob_time_intro_short_wide$quantile_CDR, prob_time_intro_short_wide$quantile_TS)
+cor(prob_time_intro_short_wide$quantile_CDR, prob_time_intro_short_wide$quantile_FB)
+cor(prob_time_intro_short_wide$quantile_TS, prob_time_intro_short_wide$quantile_FB)
+```
+
+# Using Lusaka seeds for initial infection
+```{r}
+
+run_scA = read.csv("results/run_scA.csv")
+run_scB = read.csv("results/run_scB.csv")
+run_scC = read.csv("results/run_scC.csv")
+run_scD = read.csv("results/run_scD.csv")
+run_scE = read.csv("results/run_scE.csv")
+run_scF = read.csv("results/run_scF.csv")
+run_scG = read.csv("results/run_scG.csv")
+run_scH = read.csv("results/run_scH.csv")
+run_scI = read.csv("results/run_scI.csv")
+run_scJ = read.csv("results/run_scJ.csv")
+run_scK = read.csv("results/run_scK.csv")
+run_scL = read.csv("results/run_scL.csv")
+run_scM = read.csv("results/run_scM.csv")
+
+
+all_runs_output_lus = rbind(run_scA %>% mutate(dataset = "Dep Mobile phone, Diff Mobile phone") %>% dplyr::select(-c(X)),
+                        run_scB %>% mutate(dataset = "Dep weighted Mobile phone, Diff Mobile phone") %>% dplyr::select(-c(X)),
+                        run_scC %>% mutate(dataset = "Dep Facebook, Diff Facebook")%>% dplyr::select(-c(X)),
+                        run_scD %>% mutate(dataset = "Dep weighted Facebook, Diff Facebook")%>% dplyr::select(-c(X)),
+                        run_scE %>% mutate(dataset = "Dep Travel survey, Diff Travel survey")%>% dplyr::select(-c(X)),
+                        run_scF %>% mutate(dataset = "Dep Facebook, Diff Facebook\nwith Travel survey prior")%>% dplyr::select(-c(X)),
+                        run_scG %>% mutate(dataset = "Dep pooled, Diff Mobile phone")%>% dplyr::select(-c(X)),
+                        run_scH %>% mutate(dataset = "Dep weighted pooled, Diff Mobile phone")%>% dplyr::select(-c(X)),
+                        run_scI %>% mutate(dataset = "Dep DHS, Diff Travel survey")%>% dplyr::select(-c(X)),
+                        run_scJ %>% mutate(dataset = "Dep DHS, Diff Facebook")%>% dplyr::select(-c(X)),
+                        run_scK %>% mutate(dataset = "Dep DHS, Diff Mobile phone")%>% dplyr::select(-c(X)),
+                        run_scL %>% mutate(dataset = "Dep pooled, Diff Facebook")%>% dplyr::select(-c(X)),
+                        run_scM %>% mutate(dataset = "Dep pooled, Diff Travel survey")%>% dplyr::select(-c(X)))
+# join provinces
+all_runs_output_lus = merge(all_runs_output_lus, districts.full %>% dplyr::select(district_map, province_2018), all.x=TRUE, by.x = "district", by.y = "district_map")
+
+
+# plot proportion of districts with outbreaks by week
+   out_by_week_lus = all_runs_output_lus %>% mutate(Week = time * 2) 
+   out_by_week_lus = out_by_week_lus %>% group_by(dataset, district, run_index) %>% arrange(Week) %>% mutate(cumI = cumsum(I))
+   out_by_week_lus = out_by_week_lus %>% ungroup() %>% group_by(dataset, district, Week) %>% summarize(meanI = mean(I),
+                                                                               llI = quantile(I, probs = c(0.025)),
+                                                                               ulI = quantile(I, probs = c(0.975)),
+                                                                               mean_cumI = mean(cumI),
+                                                                               ll_cumI = quantile(cumI, probs = c(0.025)),
+                                                                               ul_cumI = quantile(cumI, probs = c(0.975)))
+   # mutate outbreak variable - 1 if mean>=1
+   out_by_week_lus = out_by_week_lus %>% mutate(outbreak = ifelse(mean_cumI>=1, 1, 0),
+                                                outbreak_ll = ifelse(ll_cumI>=1, 1, 0),
+                                                outbreak_ul = ifelse(ul_cumI>=1, 1, 0))
+    # calculate proportion of districts with an outbreak at each week
+   out_by_week_lus = out_by_week_lus %>% ungroup() %>% group_by(dataset, Week) %>% summarize(prop_dist = sum(outbreak)/n(),
+                                                                                             prop_dist_ll = sum(outbreak_ll)/n(),
+                                                                                             prop_dist_ul = sum(outbreak_ul)/n())
+   
+   # plot proportion of districts with an outbreak
+   ggplot(out_by_week_lus, aes(x = Week, y = prop_dist, color = dataset))+
+     geom_line(size = 1)+
+     geom_ribbon(aes(ymin = prop_dist_ll, ymax = prop_dist_ul, fill = dataset), color = NA)+
+       scale_color_igv()+theme_bw()+
+     ggtitle("Proportion of districts with outbreak")+
+     ylab("Proportion") + theme(text = element_text(size = 20)) 
+     
+  ggsave("figures/prop_intro_by_week_lus.pdf", width = 11, height = 7,  dpi=700)
+
+  
+  # plot proportion of districts infected by week, first for raw datasets, then by diffusion
+        out_by_week_lus = out_by_week_lus %>% mutate(num_datasets = ifelse(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone", "Dep Facebook, Diff Facebook", "Dep Travel survey, Diff Travel survey"), "Single dataset", "Multiple datasets"
+      ))
+      out_by_week_lus = out_by_week_lus %>% mutate(dataset_label = case_when(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone") ~ "CDR", # "Mobile phone"
+        dataset %in% c("Dep Facebook, Diff Facebook") ~ "Facebook",
+        dataset %in% c("Dep Travel survey, Diff Travel survey") ~ "Travel survey"
+      ))
+      
+            
+   ggplot(out_by_week_lus %>% filter(num_datasets %in% "Single dataset") %>% filter(Week <=40), aes(x = Week, y = prop_dist, color = dataset_label))+
+          geom_ribbon(aes(ymin = prop_dist_ll, ymax = prop_dist_ul, fill = dataset_label), color = NA, alpha = 0.1)+ 
+     ylim(0, 1)+
+     geom_line(linewidth = 2)+
+            scale_color_igv(name = "Dataset")+theme_bw()+
+     scale_fill_igv(name = "Dataset")+
+     ggtitle("Proportion of districts with introduction")+
+     ylab("Proportion") + theme(text = element_text(size = 30))   
+  
+   
+               # now plot them by which dataset is used for diffusion
+      out_by_week_lus = out_by_week_lus %>% mutate(diffusion_dataset = case_when(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone", "Dep weighted Mobile phone, Diff Mobile phone", "Dep DHS, Diff Mobile phone", "Dep weighted pooled, Diff Mobile phone", "Dep pooled, Diff Mobile phone") ~ "Mobile phone",
+        dataset %in% c("Dep Facebook, Diff Facebook", "Dep DHS, Diff Facebook", "Dep weighted Facebook, Diff Facebook",  "Dep pooled, Diff Facebook") ~ "Facebook",
+        dataset %in% c("Dep Facebook, Diff Facebook\nwith Travel survey prior") ~ "Facebook with Travel survey prior",
+        dataset %in% c("Dep Travel survey, Diff Travel survey", "Dep DHS, Diff Travel survey", "Dep pooled, Diff Travel survey") ~ "Travel survey"
+      ))            
+      
+      ## now set up departure datasets
+      out_by_week_lus = out_by_week_lus %>% mutate(departure_dataset = case_when(
+        dataset %in% c("Dep DHS, Diff Facebook", "Dep DHS, Diff Travel survey", "Dep DHS, Diff Mobile phone") ~ "DHS",
+        dataset %in% c("Dep Facebook, Diff Facebook\nwith Travel survey prior", "Dep Facebook, Diff Facebook") ~ "Facebook",
+        dataset %in% c("Dep pooled, Diff Facebook", "Dep pooled, Diff Travel survey", "Dep pooled, Diff Mobile phone") ~ "Pooled",
+        dataset %in% c("Dep weighted Facebook, Diff Facebook") ~ "Weighted Facebook",
+        dataset %in% c("Dep weighted pooled, Diff Mobile phone") ~ "Weighted pooled",
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone") ~ "Mobile phone",
+        dataset %in% c("Dep Travel survey, Diff Travel survey") ~ "Travel survey",
+        dataset %in% c("Dep weighted Mobile phone, Diff Mobile phone") ~ "Weighted mobile phone"
+      ))
+      
+          # plot datasets split by diffusion dataset
+   ggplot(out_by_week_lus %>% filter(Week <=40), aes(x = Week, y = prop_dist, color = departure_dataset))+
+     geom_line(size = 1, alpha = 0.6)+
+       scale_color_nejm(name = "Departure dataset")+theme_bw()+
+    # ggtitle("Proportion of districts with introduction")+
+     ylab("Proportion") + theme(text = element_text(size = 22)) +
+     theme(strip.background =element_rect(fill="white"))+
+     facet_wrap(~diffusion_dataset)+
+     theme(legend.spacing.y = unit(1, 'cm'))+
+     guides(scale = guide_legend(byrow = TRUE))
+   
+   
+   ### figures for defense seminar
+   # do for mobile phone diffusion only first
+      ggplot(out_by_week_lus %>% filter(Week <=40) %>%
+               filter(diffusion_dataset %in% c("Mobile phone")), 
+             aes(x = Week, y = prop_dist, color = departure_dataset))+
+     geom_line(size = 2, alpha = 0.6)+ylim(0, 1)+
+       scale_color_nejm(name = "Departure dataset")+theme_bw()+
+    ggtitle("Proportion of districts with introduction")+
+     ylab("Proportion") + theme(text = element_text(size = 30)) +
+     theme(strip.background =element_rect(fill="white"))+
+     #facet_wrap(~diffusion_dataset)+
+     theme(legend.spacing.y = unit(1, 'cm'))+
+     guides(scale = guide_legend(byrow = TRUE))
+   
+      # using travel survey
+            ggplot(out_by_week_lus %>% filter(Week <=40) %>%
+               filter(diffusion_dataset %in% c("Travel survey")), 
+             aes(x = Week, y = prop_dist, color = departure_dataset))+
+     geom_line(size = 2, alpha = 0.6)+ylim(0, 1)+
+       scale_color_nejm(name = "Departure dataset")+theme_bw()+
+    ggtitle("Proportion of districts with introduction")+
+     ylab("Proportion") + theme(text = element_text(size = 30)) +
+     theme(strip.background =element_rect(fill="white"))+
+     #facet_wrap(~diffusion_dataset)+
+     theme(legend.spacing.y = unit(1, 'cm'))+
+     guides(scale = guide_legend(byrow = TRUE))
+            
+            # using pooled departure
+            ggplot(out_by_week_lus %>% filter(Week <=40) %>%
+               filter(departure_dataset %in% c("Pooled")), 
+             aes(x = Week, y = prop_dist, color = diffusion_dataset))+
+     geom_line(size = 2, alpha = 0.6)+ylim(0, 1)+
+       scale_color_nejm(name = "Diffusion dataset")+theme_bw()+
+    ggtitle("Proportion of districts with introduction")+
+     ylab("Proportion") + theme(text = element_text(size = 30)) +
+     theme(strip.background =element_rect(fill="white"))+
+     #facet_wrap(~diffusion_dataset)+
+     theme(legend.spacing.y = unit(1, 'cm'))+
+     guides(scale = guide_legend(byrow = TRUE))
+   
+  # get proportion of districts with outbreak
+  out_by_week_lus  = out_by_week_lus %>% ungroup() %>% group_by(dataset) %>% mutate(max_prop_out = max(prop_dist))
+  # check how many 
+  out_by_week_lus %>% group_by(dataset) %>% slice(1) %>% filter(departure_dataset %in% c("Pooled")) %>% flextable()
+  
+  prop_out_dat = out_by_week_lus %>% ungroup() %>% group_by(dataset) %>% filter(Week == max(Week)) %>% dplyr::select(dataset, max_prop_out) 
+  
+      # nationwide epi curve by scenario
+   epi_nat_lus = all_runs_output_lus %>% mutate(Week = time * 2) 
+   epi_nat_lus = epi_nat_lus %>% group_by(dataset, run_index, Week) %>% summarize(totalI = sum(I))
+   epi_nat_lus = epi_nat_lus %>% ungroup() %>% group_by(dataset, Week) %>% summarize(medianI = median(totalI),
+                                                                                     meanI = mean(totalI),
+                                                                                                                                                 llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)))
+   
+   ## first get nationwide epi curves for raw scenarios -- use cumulative
+   epi_nat_lus = epi_nat_lus %>% group_by(dataset) %>% mutate(cumI_mean = cumsum(meanI),
+                                                              cumI_median = cumsum(medianI),
+                                                              cumI_ll = cumsum(llI),
+                                                              cumI_ul = cumsum(ulI))
+   # incidence curve for all scenarios
+   ggplot(epi_nat_lus %>% filter(Week <=40), aes(x = Week, y = medianI, color = dataset))+
+         geom_ribbon(aes(ymin = llI, ymax = ulI, fill=dataset),color=NA, alpha = 0.1)+
+     geom_line(size = 1, alpha = 0.7)+
+       scale_color_igv()+
+     scale_fill_igv() + theme_bw()+
+     ggtitle("Measles cases")+
+     ylab("Cases") + theme(text = element_text(size = 20)) 
+   
+   # cumulative
+      ggplot(epi_nat_lus %>% filter(Week <=40), aes(x = Week, y = cumI_mean, color = dataset))+
+         geom_ribbon(aes(ymin = cumI_ll, ymax = cumI_ul, fill=dataset),color=NA, alpha = 0.1)+
+     geom_line(size = 1, alpha = 0.7)+
+       scale_color_igv()+
+     scale_fill_igv() + theme_bw()+
+     ggtitle("Measles cases")+
+     ylab("Cases") + theme(text = element_text(size = 20)) 
+      
+      
+      ## now split them into panels
+      epi_nat_lus = epi_nat_lus %>% mutate(num_datasets = ifelse(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone", "Dep Facebook, Diff Facebook", "Dep Travel survey, Diff Travel survey"), "Single dataset", "Multiple datasets"
+      ))
+      epi_nat_lus = epi_nat_lus %>% mutate(dataset_label = case_when(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone") ~ "Mobile phone",
+        dataset %in% c("Dep Facebook, Diff Facebook") ~ "Facebook",
+        dataset %in% c("Dep Travel survey, Diff Travel survey") ~ "Travel survey"
+      ))
+      
+      # plot raw datasets only
+            ggplot(epi_nat_lus %>% filter(Week<=40) %>% filter(num_datasets == "Single dataset"), aes(x = Week, y = cumI_mean, color = dataset_label))+
+         geom_ribbon(aes(ymin = cumI_ll, ymax = cumI_ul, fill=dataset_label),color=NA, alpha = 0.1)+
+     geom_line(size = 1, alpha = 0.7)+
+       scale_color_igv(name = "Dataset")+
+     scale_fill_igv(name = "Dataset") + theme_bw()+
+     ggtitle("Cumulative cases")+
+     ylab("Cases") + theme(text = element_text(size = 20)) 
+            
+            # now plot them by which dataset is used for diffusion
+      epi_nat_lus = epi_nat_lus %>% mutate(diffusion_dataset = case_when(
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone", "Dep weighted Mobile phone, Diff Mobile phone", "Dep DHS, Diff Mobile phone", "Dep weighted pooled, Diff Mobile phone", "Dep pooled, Diff Mobile phone") ~ "Mobile phone diffusion",
+        dataset %in% c("Dep Facebook, Diff Facebook", "Dep DHS, Diff Facebook", "Dep weighted Facebook, Diff Facebook",  "Dep pooled, Diff Facebook") ~ "Facebook diffusion",
+        dataset %in% c("Dep Facebook, Diff Facebook\nwith Travel survey prior") ~ "Facebook with Travel\nsurvey prior diffusion",
+        dataset %in% c("Dep Travel survey, Diff Travel survey", "Dep DHS, Diff Travel survey", "Dep pooled, Diff Travel survey") ~ "Travel survey"
+      ))            
+      
+            ## now set up departure datasets
+      epi_nat_lus = epi_nat_lus %>% mutate(departure_dataset = case_when(
+        dataset %in% c("Dep DHS, Diff Facebook", "Dep DHS, Diff Travel survey", "Dep DHS, Diff Mobile phone") ~ "DHS",
+        dataset %in% c("Dep Facebook, Diff Facebook\nwith Travel survey prior", "Dep Facebook, Diff Facebook") ~ "Facebook",
+        dataset %in% c("Dep pooled, Diff Facebook", "Dep pooled, Diff Travel survey", "Dep pooled, Diff Mobile phone") ~ "Pooled",
+        dataset %in% c("Dep weighted Facebook, Diff Facebook") ~ "Weighted Facebook",
+        dataset %in% c("Dep weighted pooled, Diff Mobile phone") ~ "Weighted pooled",
+        dataset %in% c("Dep Mobile phone, Diff Mobile phone") ~ "Mobile phone",
+        dataset %in% c("Dep Travel survey, Diff Travel survey") ~ "Travel survey",
+        dataset %in% c("Dep weighted Mobile phone, Diff Mobile phone") ~ "Weighted mobile phone"
+      ))
+          # plot datasets split by diffusion dataset
+                  ggplot(epi_nat_lus %>% filter(Week <=40), aes(x = Week, y = cumI_mean, color = departure_dataset))+
+    #     geom_ribbon(aes(ymin = cumI_ll, ymax = cumI_ul, fill=departure_dataset),color=NA, alpha = 0.1)+
+     geom_line(size = 1, alpha = 0.7)+
+       scale_color_igv(name = "Dataset")+
+     scale_fill_igv(name = "Dataset") + theme_bw()+
+     #ggtitle("Cumulative cases")+
+     ylab("Cases") + theme(text = element_text(size = 20))  + 
+                    facet_wrap(~diffusion_dataset)
+            
+            
+   
+   # get peak infections -- first get maximum number of infections for each run
+   peak_inf_lus = all_runs_output_lus %>% group_by(dataset, time, run_index) %>% summarize(totI = sum(I))
+   peak_inf_lus = peak_inf_lus %>% ungroup() %>% group_by(dataset, run_index) %>% filter(totI == max(totI))
+   peak_inf_lus = peak_inf_lus %>% ungroup() %>% group_by(dataset) %>% summarize(mean_peakI = mean(totI),
+                                                                                ll_peakI = quantile(totI, prob = c(0.025)),
+                                                                                ul_peakI = quantile(totI, prob = c(0.975)),
+                                                                                median_peakI = median(totI))
+   peak_inf_lus = peak_inf_lus %>% mutate(peak_CI = paste0(signif(mean_peakI, 2), " [", signif(ll_peakI, 2), "; ", signif(ul_peakI, 2), "]"))
+   
+ # get total cases by province
+  sum_nat_lus = all_runs_output_lus %>% mutate(weeks = time * 2) %>% group_by(dataset, province_2018, run_index, weeks) %>% summarize(totalI = sum(I))
+  sum_nat_lus = sum_nat_lus %>% ungroup() %>% group_by(dataset, province_2018, weeks) %>% summarize(meanI = mean(totalI),
+                                                                   llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)),
+                                                                   medianI = median(totalI))
+    # overall
+    sum_nat_tot_lus = all_runs_output_lus %>% mutate(weeks = time * 2) %>% group_by(dataset, run_index) %>% summarize(totalI = sum(I))
+  sum_nat_tot_lus = sum_nat_tot_lus %>% ungroup() %>% group_by(dataset) %>% summarize(meanI = mean(totalI),
+                                                                   llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)),
+                                                                   medianI = median(totalI))
+  # get percentage infected
+  # population size: note that we have 10 time steps of 2020, the rest are 2021 - so use weighted population
+  # merge in population
+  pop_nat = pop_mat2020_2_full[, 1:t_2] %>% colSums()
+  pop_nat = mean(pop_nat)
+  sum_nat_tot_lus = sum_nat_tot_lus %>% mutate(perc_inf_mean = (meanI / pop_nat * 100),
+                                               perc_inf_llI = (llI / pop_nat * 100),
+                                               perc_inf_ulI = (ulI / pop_nat * 100))
+  
+  sum_nat_tot_lus = sum_nat_tot_lus %>% mutate(meanI = round(meanI),
+                            llI = round(llI),
+                            ulI = round(ulI),
+                            medianI = round(medianI)) 
+ sum_nat_tot_lus %>% flextable()
+ 
+ # combine with proportion of districts with introduction
+ sum_nat_tot_lus = merge(sum_nat_tot_lus, prop_out_dat, by = "dataset", all.x=TRUE)
+ sum_nat_tot_lus = sum_nat_tot_lus %>% dplyr::select(-c(perc_inf_mean, perc_inf_llI, perc_inf_ulI)) %>%
+   mutate(totalI = paste0(signif(meanI, 2), " [", signif(llI, 2), "; ", signif(ulI, 2), "]"))
+ 
+summary_table = merge(sum_nat_tot_lus, peak_inf_lus %>% dplyr::select(dataset, peak_CI), by = "dataset", all = TRUE)
+summary_table = summary_table %>% dplyr::select(dataset, totalI, peak_CI, max_prop_out)
+
+summary_table = summary_table %>% mutate(max_prop_out = round(max_prop_out*100))
+
+
+summary_table %>% flextable() %>% autofit() %>% save_as_docx(path = "outputs/feb11/measles_sim_summary.docx")
+
+
+  sum_nat_tot_lus = sum_nat_tot_lus %>% ungroup() %>% group_by(dataset) %>% summarize(meanI = mean(totalI),
+                                                                   llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)),
+                                                                   medianI = median(totalI))
+ 
+  
+  
+  # plot number of cases
+  sum_nat_tot_lus %>% ggplot(aes(x = dataset, y = meanI)) + 
+    geom_point() + 
+    geom_errorbar(aes(ymin = llI, ymax = ulI), width = 0.2) + 
+    scale_color_igv() + theme_bw() + 
+        theme(axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"))+
+    ggtitle("Cumulative number of cases") + ylab("Cases")
+  
+  # plot mean number of infections nationwide  onward by province
+  totalI_plot_lus = ggplot(sum_nat_lus , aes(x=weeks, y=medianI, color = dataset)) +
+    #geom_ribbon(aes(ymin = llI, ymax = ulI, fill=dataset),color=NA, alpha = 0.2)+
+        geom_line(alpha = 0.7) +
+    xlab("Weeks") + 
+    ylab("Measles cases") +
+    theme_classic() +
+    theme(axis.text.x = element_text(size = 16),axis.text.y = element_text(size = 16),strip.text=element_text(size=16))  +
+    theme(plot.title = element_text(size = 16, hjust = 0.5))+
+       scale_color_igv()+
+     scale_fill_igv() +
+    facet_wrap(~province_2018, scales = "free")
+
+ # get total number of cases per district - Chmoa and Ndola only
+      sum_nat_tot_lus = all_runs_output_lus %>%  filter(district %in% c("choma", "ndola", "lusaka")) %>% mutate(weeks = time * 2) %>% group_by(dataset, district, run_index) %>% summarize(totalI = sum(I))
+  sum_nat_tot_lus = sum_nat_tot_lus %>% ungroup() %>% group_by(dataset, district) %>% summarize(meanI = mean(totalI),
+                                                                   llI = quantile(totalI, prob= c(0.025)),
+                                                                   ulI = quantile(totalI, prob = c(0.975)),
+                                                                   medianI = median(totalI))
+  
+  sum_nat_tot_lus = sum_nat_tot_lus %>% mutate(meanI = round(meanI),
+                            llI = round(llI),
+                            ulI = round(ulI),
+                            medianI = round(medianI)) 
+  sum_nat_tot_lus %>% flextable()
+  
+    # plot number of cases in choma + ndola
+  sum_nat_tot_lus %>% ggplot(aes(x = dataset, y = meanI)) + 
+    geom_point() + 
+    geom_errorbar(aes(ymin = llI, ymax = ulI), width = 0.2) + 
+    scale_color_igv() + theme_bw() + 
+        theme(axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"))+
+    ggtitle("Cumulative number of cases") + ylab("Cases") + 
+    facet_wrap(~district, nrow = 3, scales="free_y")
+   
+```
+
+
+Make maps of time to introduction by district by which dataset is used
+```{r}
+# mobile phone
+out_A = plots_post_run(runs_output = run_scA %>% dplyr::select(-c(X)), 
+                                    time_max = 36)
+
+# Facebook
+out_C = plots_post_run(runs_output = run_scC %>% dplyr::select(-c(X)), 
+                                    time_max = 36)
+
+# travel survey
+out_E = plots_post_run(runs_output = run_scE %>% dplyr::select(-c(X)), 
+                                    time_max = 36)
+
+
+# median time to introductions
+prow <- cowplot::plot_grid(out_A[[5]] + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + theme(legend.position = "none") + ggtitle("CDR") +theme(text = element_text(size=24)),
+                           out_C[[5]] + theme(legend.position = "none") + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + ggtitle("Facebook") +theme(text = element_text(size=24)),
+                           out_E[[5]] +  theme(legend.position = "none") + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + ggtitle("Travel survey") + theme(text = element_text(size=24)),
+                           align = 'vh',
+                           nrow = 1)
+
+legend <- get_legend(
+  # create some space to the left of the legend
+  out_A[[5]] + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20), name = "Weeks to introduction" ) + theme(legend.box.margin = margin(0, 0, 0, 12)) + theme(legend.position = "bottom")
+)
+
+plot_grid(prow, legend, rel_heights = c(3, 0.4), nrow = 2)
+
+cowplot::plot_grid(out_A[[5]] + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + theme(legend.position = "none") + ggtitle("CDR") +theme(text = element_text(size=24)),
+                           out_C[[5]] + theme(legend.position = "none") + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + ggtitle("Facebook") +theme(text = element_text(size=24)),
+                           out_E[[5]] +  theme(legend.position = "none") + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20)) + ggtitle("Travel survey") + theme(text = element_text(size=24)),
+                 get_legend(
+  # create some space to the left of the legend
+  out_A[[5]] + scale_fill_viridis_c(option = "mako", direction = 1, na.value = "grey95", limits = c(0, 20), name = "Weeks to\n introduction" ) + theme(legend.box.margin = margin(0, 0, 0, 12)) 
+),   
+                           align = 'vh',
+                           nrow = 2, ncol = 2)
+```
+
+## Compare ranks of districts - by probability of introduction
+```{r}
+# get probability of introduction for each district
+prob_intro_lus = all_runs_output_lus %>% ungroup()  %>% group_by(dataset,district, run_index) %>% arrange(time) %>% mutate(cumI = cumsum(I)) %>% filter(time == max(time)) # only keep last time 
+prob_intro_lus = prob_intro_lus %>% group_by(dataset, district) %>% summarize(prob_intro = sum(cumI>=1)/n())
+
+# first, just look at CDR only, survey data only, and FB only
+prob_intro_short_lus = prob_intro_lus %>% filter(dataset %in% c("Dep Facebook, Diff Facebook", "Dep Travel survey, Diff Travel survey", "Dep Mobile phone, Diff Mobile phone"))
+# calculate rank
+prob_intro_short_lus = prob_intro_short_lus %>% ungroup() %>% group_by(dataset) %>% mutate(rank_prob_intro = rank(-c(prob_intro)))
+# make into wide
+prob_intro_short_lus_wide = prob_intro_short_lus %>% dplyr::select(-c(prob_intro)) %>% pivot_wider(id_cols = district, names_from = dataset, values_from = rank_prob_intro)
+
+# make a plot
+# CDR vs travel survey
+ggplot(prob_intro_short_lus_wide, aes(x = `Dep Mobile phone, Diff Mobile phone`)) + 
+  geom_line(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   geom_point(aes(y = `Dep Travel survey, Diff Travel survey`), color = "darkgreen")+
+  theme_minimal()+
+  # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Mobile phone rank") + ylab("Travel survey rank")+
+  #theme(axis.text.x = element_text(size = 14),axis.text.y = element_text(size = 14))+
+  theme(text = element_text(size = 20))
+
+
+  
+# CDR vs FB
+ggplot(prob_intro_short_lus_wide, aes(x = `Dep Mobile phone, Diff Mobile phone`)) + 
+  geom_line(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+  geom_point(aes(y = `Dep Facebook, Diff Facebook`), color = "blue")+
+  theme_minimal()+
+    # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Mobile phone rank") + ylab("Facebook rank")+
+    theme(text = element_text(size = 20))
+
+# FB vs travel survey
+# CDR vs FB
+ggplot(prob_intro_short_lus_wide, aes(x = `Dep Facebook, Diff Facebook`)) + 
+  geom_line(aes(y = `Dep Facebook, Diff Facebook`), color = "blue")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+  geom_point(aes(y = `Dep Travel survey, Diff Travel survey`), color = "darkgreen")+
+  theme_minimal()+
+    # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Facebook rank") + ylab("Travel survey rank")+
+    theme(text = element_text(size = 20))
+
+# make a table with quantiles
+prob_intro_short_lus_wide = prob_intro_short_lus_wide %>% mutate(quantile_CDR = ntile(`Dep Mobile phone, Diff Mobile phone`, 3),
+                                                         quantile_TS = ntile(`Dep Travel survey, Diff Travel survey`, 3),
+                                                         quantile_FB = ntile(`Dep Facebook, Diff Facebook`, 3))
+ftable(prob_intro_short_lus_wide$quantile_CDR, prob_intro_short_lus_wide$quantile_TS, prob_intro_short_lus_wide$quantile_FB)
+# by dataset
+ftable(prob_intro_short_lus_wide$quantile_CDR, prob_intro_short_lus_wide$quantile_TS)
+ftable(prob_intro_short_lus_wide$quantile_CDR, prob_intro_short_lus_wide$quantile_FB)
+ftable(prob_intro_short_lus_wide$quantile_FB, prob_intro_short_lus_wide$quantile_TS)
+#70.4%
+ftable(prob_intro_short_lus_wide$first_quantile_CDR, prob_intro_short_lus_wide$first_quantile_FB)
+ftable(prob_intro_short_lus_wide$first_quantile_CDR, prob_intro_short_lus_wide$first_quantile_TS)
+ftable(prob_intro_short_lus_wide$first_quantile_FB, prob_intro_short_lus_wide$first_quantile_TS)
+
+# make one for being in firdst tertile
+prob_intro_short_lus_wide = prob_intro_short_lus_wide %>% mutate(first_quantile_CDR = ifelse(quantile_CDR==1, 1, 0), first_quantile_TS = ifelse(quantile_TS == 1, 1, 0), first_quantile_FB = ifelse(quantile_FB == 1, 1, 0))
+ftable(prob_intro_short_lus_wide$first_quantile_CDR, prob_intro_short_lus_wide$first_quantile_TS, prob_intro_short_lus_wide$first_quantile_FB)
+
+
+## plot one against another
+ggplot(prob_intro_short_lus_wide ) + geom_point(aes(x = `Dep Mobile phone, Diff Mobile phone`, y = `Dep Travel survey, Diff Travel survey`))+
+  geom_line(aes(x = `Dep Travel survey, Diff Travel survey`, y = `Dep Travel survey, Diff Travel survey`), color = "blue") + theme_bw()
+
+# order them all 
+ordered_df = prob_intro_short_lus_wide %>% select(district, `Dep Facebook, Diff Facebook`) %>% arrange(`Dep Facebook, Diff Facebook`) %>% rename(district_FB = district,
+                                                                                                                                                 Facebook = `Dep Facebook, Diff Facebook`)
+
+ordered_df = cbind(ordered_df, 
+                   prob_intro_short_lus_wide %>% select(district, `Dep Mobile phone, Diff Mobile phone`) %>% arrange(`Dep Mobile phone, Diff Mobile phone`)) %>% rename(district_MobilePhone = district, MobilePhone = `Dep Mobile phone, Diff Mobile phone`)
+
+ordered_df = cbind(ordered_df, 
+                   prob_intro_short_lus_wide %>% select(district, `Dep Travel survey, Diff Travel survey`) %>% arrange(`Dep Travel survey, Diff Travel survey`)) %>% rename(district_TS = district, TravelSurvey = `Dep Travel survey, Diff Travel survey`)
+
+ordered_df %>% flextable() %>% save_as_docx(path = "ranking_aim3.docx")
+```
+
+## By mean time to introduction
+
+```{r}
+prob_time_intro_short_lus = all_runs_output_lus %>% filter(dataset %in% c("Dep Facebook, Diff Facebook", "Dep Travel survey, Diff Travel survey", "Dep Mobile phone, Diff Mobile phone"))
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% mutate(Week = time * 2) 
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% group_by(dataset, district, run_index) %>% arrange(Week) %>% mutate(cumI = cumsum(I))
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% ungroup() %>% group_by(dataset, district, Week) %>% summarize(meanI = mean(I),
+                                                                               llI = quantile(I, probs = c(0.025)),
+                                                                               ulI = quantile(I, probs = c(0.975)),
+                                                                               mean_cumI = mean(cumI),
+                                                                               ll_cumI = quantile(cumI, probs = c(0.025)),
+                                                                               ul_cumI = quantile(cumI, probs = c(0.975)))
+   # mutate outbreak variable - 1 if mean_cumI>=1
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% mutate(outbreak = ifelse(mean_cumI>=1, 1, 0))
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% group_by(dataset, district) %>% 
+     mutate(ever_outbreak = ifelse(max(outbreak)==0, 0, 1))
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% group_by(dataset, district) %>%
+     filter(ever_outbreak == 0 | (ever_outbreak ==1 & outbreak == 1)) # keep only those that didn't have an outbreak and only those that had an outbreak for the times when it had an outbreak
+   # now only keep the first occurence
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% group_by(dataset, district) %>%
+     arrange(Week) %>% slice(1)
+   # if never outbreak, then set week to 100
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% mutate(time_intro = ifelse(ever_outbreak == 0, 100, Week))
+   
+   # now create a ranking
+   prob_time_intro_short_lus = prob_time_intro_short_lus %>% group_by(dataset) %>% 
+     mutate(rank_intro_time = rank(time_intro))
+
+# make into wide
+prob_time_intro_short_lus_wide = prob_time_intro_short_lus %>% ungroup() %>% dplyr::select(c(dataset, district, rank_intro_time)) %>% pivot_wider(id_cols = district, names_from = dataset, values_from = rank_intro_time)
+
+# make a plot
+# CDR vs travel survey
+ggplot(prob_time_intro_short_lus_wide, aes(x = `Dep Mobile phone, Diff Mobile phone`)) + 
+  geom_line(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   geom_jitter(aes(y = `Dep Travel survey, Diff Travel survey`), color = "darkgreen", alpha = 0.75)+
+  theme_minimal()+
+  # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Mobile phone rank") + ylab("Travel survey rank")+
+  #theme(axis.text.x = element_text(size = 14),axis.text.y = element_text(size = 14))+
+  theme(text = element_text(size = 20))
+
+
+  
+# CDR vs FB
+ggplot(prob_time_intro_short_lus_wide, aes(x = `Dep Mobile phone, Diff Mobile phone`)) + 
+  geom_line(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+  geom_jitter(aes(y = `Dep Facebook, Diff Facebook`), color = "blue", alpha = 0.75)+
+  theme_minimal()+
+    # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Mobile phone rank") + ylab("Facebook rank")+
+    theme(text = element_text(size = 20))
+
+# FB vs travel survey
+# CDR vs FB
+ggplot(prob_time_intro_short_lus_wide, aes(x = `Dep Facebook, Diff Facebook`)) + 
+  geom_line(aes(y = `Dep Facebook, Diff Facebook`), color = "blue")+
+   #geom_point(aes(y = `Dep Mobile phone, Diff Mobile phone`), color = "red")+
+  geom_jitter(aes(y = `Dep Travel survey, Diff Travel survey`), color = "darkgreen", alpha = 0.75)+
+  theme_minimal()+
+    # add line segments for each tertile
+  # for first tertile
+  geom_segment(aes(x = ceiling(115/3), y = 0, xend = ceiling(115/3), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3), x = 0, yend = ceiling(115/3), xend = 115), linetype = "dashed")+
+  # for second tertile
+  geom_segment(aes(x = ceiling(115/3*2), y = 0, xend = ceiling(115/3*2), yend = 115), linetype = "dashed")+
+  geom_segment(aes(y = ceiling(115/3*2), x = 0, yend = ceiling(115/3*2), xend = 115), linetype = "dashed")+
+  xlim(0, 115) + ylim(0, 115)+
+  xlab("Facebook rank") + ylab("Travel survey rank")+
+    theme(text = element_text(size = 20))
+
+# make a table with quantiles
+prob_time_intro_short_lus_wide = prob_time_intro_short_lus_wide %>% mutate(quantile_CDR = ntile(`Dep Mobile phone, Diff Mobile phone`, 3),
+                                                         quantile_TS = ntile(`Dep Travel survey, Diff Travel survey`, 3),
+                                                         quantile_FB = ntile(`Dep Facebook, Diff Facebook`, 3))
+ftable(prob_time_intro_short_lus_wide$quantile_CDR, prob_time_intro_short_lus_wide$quantile_TS, prob_time_intro_short_lus_wide$quantile_FB)
+```
+
+# Sensitivity analysis - using different R0s
+
+## Low R0
+```{r}
+
+run_scA_betalow = read.csv("results/run_scA_betalow.csv")
+run_scC_betalow = read.csv("results/run_scC_betalow.csv")
+run_scE_betalow = read.csv("results/run_scE_betalow.csv")
+
+
+all_runs_output_lus_betalow = rbind(run_scA_betalow %>% mutate(dataset = "Dep Mobile phone, Diff Mobile phone") %>% dplyr::select(-c(X)),
+                        run_scC_betalow %>% mutate(dataset = "Dep Facebook, Diff Facebook")%>% dplyr::select(-c(X)),
+                        run_scE_betalow %>% mutate(dataset = "Dep Travel survey, Diff Travel survey")%>% dplyr::select(-c(X)))
+
+
+# plot proportion of districts with outbreaks by week
+   out_by_week_lus_betalow = all_runs_output_lus_betalow %>% mutate(Week = time * 2) 
+   out_by_week_lus_betalow = out_by_week_lus_betalow %>% group_by(dataset, district, run_index) %>% arrange(Week) %>% mutate(cumI = cumsum(I))
+   out_by_week_lus_betalow = out_by_week_lus_betalow %>% ungroup() %>% group_by(dataset, district, Week) %>% summarize(meanI = mean(I),
+                                                                               llI = quantile(I, probs = c(0.025)),
+                                                                               ulI = quantile(I, probs = c(0.975)),
+                                                                               mean_cumI = mean(cumI),
+                                                                               ll_cumI = quantile(cumI, probs = c(0.025)),
+                                                                               ul_cumI = quantile(cumI, probs = c(0.975)))
+   # mutate outbreak variable - 1 if mean>=1
+   out_by_week_lus_betalow = out_by_week_lus_betalow %>% group_by(dataset, district, Week) %>% mutate(outbreak = ifelse(mean_cumI>=1, 1, 0),
+                                                outbreak_ll = ifelse(ll_cumI>=1, 1, 0),
+                                                outbreak_ul = ifelse(ul_cumI>=1, 1, 0))
+    # calculate proportion of districts with an outbreak at each week
+   out_by_week_lus_betalow = out_by_week_lus_betalow %>% ungroup() %>% group_by(dataset, Week) %>% summarize(prop_dist = sum(outbreak)/n(),
+                                                                                             prop_dist_ll = sum(outbreak_ll)/n(),
+                                                                                             prop_dist_ul = sum(outbreak_ul)/n())
+   
+   # plot proportion of districts with an outbreak
+   ggplot(out_by_week_lus_betalow, aes(x = Week, y = prop_dist, color = dataset))+
+     geom_line(size = 1, alpha = 0.4)+
+     #geom_ribbon(aes(ymin = prop_dist_ll, ymax = prop_dist_ul, fill = dataset), color = NA)+
+       scale_color_igv()+theme_bw()+
+     ggtitle("Proportion of districts with outbreak")+
+     ylab("Proportion") + theme(text = element_text(size = 20)) 
+   
+   # Note: only Lusaka has outbreaks in this scenario
+```
+
+## R0/2
+```{r}
+
+run_scA_beta2 = read.csv("results/run_scA_beta2.csv")
+run_scC_beta2 = read.csv("results/run_scC_beta2.csv")
+run_scE_beta2 = read.csv("results/run_scE_beta2.csv")
+
+
+all_runs_output_lus_beta2 = rbind(run_scA_beta2 %>% mutate(dataset = "Dep Mobile phone, Diff Mobile phone") %>% dplyr::select(-c(X)),
+                        run_scC_beta2 %>% mutate(dataset = "Dep Facebook, Diff Facebook")%>% dplyr::select(-c(X)),
+                        run_scE_beta2 %>% mutate(dataset = "Dep Travel survey, Diff Travel survey")%>% dplyr::select(-c(X)))
+
+
+# plot proportion of districts with outbreaks by week
+   out_by_week_lus_beta2 = all_runs_output_lus_beta2 %>% mutate(Week = time * 2) 
+   out_by_week_lus_beta2 = out_by_week_lus_beta2 %>% group_by(dataset, district, run_index) %>% arrange(Week) %>% mutate(cumI = cumsum(I))
+   out_by_week_lus_beta2 = out_by_week_lus_beta2 %>% ungroup() %>% group_by(dataset, district, Week) %>% summarize(meanI = mean(I),
+                                                                               llI = quantile(I, probs = c(0.025)),
+                                                                               ulI = quantile(I, probs = c(0.975)),
+                                                                               mean_cumI = mean(cumI),
+                                                                               ll_cumI = quantile(cumI, probs = c(0.025)),
+                                                                               ul_cumI = quantile(cumI, probs = c(0.975)))
+   # mutate outbreak variable - 1 if mean>=1
+   out_by_week_lus_beta2 = out_by_week_lus_beta2 %>% group_by(dataset, district, Week) %>% mutate(outbreak = ifelse(mean_cumI>=1, 1, 0),
+                                                outbreak_ll = ifelse(ll_cumI>=1, 1, 0),
+                                                outbreak_ul = ifelse(ul_cumI>=1, 1, 0))
+    # calculate proportion of districts with an outbreak at each week
+   out_by_week_lus_beta2 = out_by_week_lus_beta2 %>% ungroup() %>% group_by(dataset, Week) %>% summarize(prop_dist = sum(outbreak)/n(),
+                                                                                             prop_dist_ll = sum(outbreak_ll)/n(),
+                                                                                             prop_dist_ul = sum(outbreak_ul)/n())
+   
+   # plot proportion of districts with an outbreak
+   ggplot(out_by_week_lus_beta2, aes(x = Week, y = prop_dist, color = dataset))+
+     geom_line(size = 1, alpha = 0.4)+
+     #geom_ribbon(aes(ymin = prop_dist_ll, ymax = prop_dist_ul, fill = dataset), color = NA)+
+       scale_color_igv()+theme_bw()+
+     ggtitle("Proportion of districts with outbreak")+
+     ylab("Proportion") + theme(text = element_text(size = 20)) 
+   
+
+```
+
+# Sensitivity -  varying proportion and coefficients
+```{r}
+run_sen_outbreak = read.csv("outputs/sens_introductions.csv")
+run_sen_outbreak = run_sen_outbreak %>% dplyr::select(-c(X))
+
+dat_long = run_sen_outbreak %>% pivot_longer(cols = -c(time), names_to = "vars", values_to = "value")
+dat_long$Week = dat_long$time * 2
+
+# separate into variable values
+dat_long$vars = gsub(".rds", "", dat_long$vars)
+dat_long$vars = gsub("M_CDR_", "", dat_long$vars)
+dat_long$vars = gsub("omega1_", "", dat_long$vars)
+dat_long$vars = gsub("omega2_", "", dat_long$vars)
+dat_long = dat_long %>% separate(vars, sep = "_", c("delta", "theta", "omega1", "omega2", "p"))
+dat_long$delta = gsub("delta", "", dat_long$delta)
+dat_long$theta = gsub("theta", "", dat_long$theta)
+dat_long$p = gsub("p", "", dat_long$p)
+
+```
+
+```{r}
+dat_last = dat_long %>% filter(Week == max(Week))
+
+vec_p = c(0.2, 0.5, 0.8)
+vec_theta = c(0.5, 1, 2)
+vec_omega1 = c(0.5, 1, 2)
+vec_omega2 = c(0.5, 1, 2)
+vec_delta = c(0.5, 1, 2)
+
+# replace wiht proportion values
+dat_last = dat_last %>% mutate(delta = case_when(delta %in% "1"~ vec_delta[1],
+                                                 delta %in% "2" ~ vec_delta[2],
+                                                 delta %in% "3" ~ vec_delta[3]),
+                               p = case_when(p %in% "1" ~ vec_p[1],
+                                             p %in% "2" ~ vec_p[2],
+                                             p %in% "3" ~ vec_p[3]),
+                               theta = case_when(theta %in% "1" ~ vec_theta[1],
+                                                 theta %in% "2" ~ vec_theta[2],
+                                                 theta %in% "3" ~ vec_theta[3]),
+                               omega1 = case_when(omega1 %in% "1" ~ vec_omega1[1],
+                                                  omega1 %in% "2" ~ vec_omega1[2],
+                                                  omega1 %in% "3" ~ vec_omega1[3]),
+                               omega2 = case_when(omega2 %in% "1" ~ vec_omega2[1],
+                                                  omega2 %in% "2" ~ vec_omega2[2],
+                                                  omega2 %in% "3" ~ vec_omega2[3]))
+
+   # plot proportion of districts with an outbreak
+   ggplot(dat_last, aes(x = delta, y = p, fill = value))+
+geom_tile()+
+     facet_nested(theta ~omega1 + omega2, labeller = label_both)+
+     ggtitle("Proportion of districts with outbreak")+
+     theme(text = element_text(size = 12))  +
+     scale_fill_gsea(name = "Proportion of districts")
+
+
+```
+
+# Sensitivity -  varying proportion and coefficients for extreme case
+```{r}
+name_files2 = dir("outputs/sen2")
+
+# collate all the outputs
+dat_temp = data.frame(matrix(NA, ncol = 12, nrow = 0))
+
+start_k = 1
+end_k = length(name_files2)
+for (k in start_k:end_k){
+  dat_temp_in = read.csv(paste0("outputs/sen2/", name_files2[k]))
+  dat_temp_in = dat_temp_in %>% dplyr::select(run_index:time)
+  dat_temp = rbind(dat_temp, dat_temp_in %>% mutate(`name_files2[k]` = name_files2[k]))
+}
+
+# get proportion of districts with outbreaks
+dat_temp = dat_temp %>% group_by(`name_files2[k]`, run_index, district) %>% arrange(time) %>%
+  mutate(cumI = cumsum(I))
+dat_temp = dat_temp %>% ungroup() %>% filter(time == max(time))
+dat_temp = dat_temp %>% ungroup() %>% group_by(`name_files2[k]`, run_index) %>%
+  summarize(prop_out = sum(cumI>=1) / n())
+
+# pull together information on the coefficient values
+name_files = dir("outputs/sensitivity2")
+dat_temp$`name_files2[k]` = gsub(".csv", "", dat_temp$`name_files2[k]`)
+dat_temp$`name_files2[k]` = as.numeric(dat_temp$`name_files2[k]`)
+for (i in 1:nrow(dat_temp)){
+  dat_temp$name_f[i] = name_files[dat_temp$`name_files2[k]`[i]]
+}
+
+
+# separate into variable values
+dat_temp$vars = gsub(".rds", "", dat_temp$name_f)
+dat_temp$vars = gsub("M_CDR_", "", dat_temp$vars)
+dat_temp$vars = gsub("omega1_", "", dat_temp$vars)
+dat_temp$vars = gsub("omega2_", "", dat_temp$vars)
+dat_temp = dat_temp %>% separate(vars, sep = "_", c("delta", "theta", "omega1", "omega2", "p"))
+dat_temp$delta = gsub("delta", "", dat_temp$delta)
+dat_temp$theta = gsub("theta", "", dat_temp$theta)
+dat_temp$p = gsub("p", "", dat_temp$p)
+
+```
+
+```{r}
+vec_p = c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+vec_theta = c(1)
+vec_omega1 = c(2)
+vec_omega2 = c(2)
+vec_delta = c(5)
+
+dat_temp$p = as.numeric(dat_temp$p)
+dat_temp$delta = as.numeric(dat_temp$delta)
+dat_temp$theta = as.numeric(dat_temp$theta)
+dat_temp$omega1 = as.numeric(dat_temp$omega1)
+dat_temp$omega2 = as.numeric(dat_temp$omega2)
+
+
+dat_temp$p = vec_p[dat_temp$p]
+dat_temp$delta = vec_delta[dat_temp$delta] 
+dat_temp$theta = vec_theta[dat_temp$theta] 
+dat_temp$omega1 = vec_omega1[dat_temp$omega1] 
+dat_temp$omega2 = vec_omega2[dat_temp$omega2] 
+
+dat_temp$p_fact = factor(dat_temp$p)
+   # plot proportion of districts with an outbreak
+   ggplot(dat_temp, aes(x = p_fact, y = prop_out))+
+geom_boxplot(notch = TRUE)+
+     ggtitle("Proportion of districts with outbreak")
+
+
+```
+
+Combining CDR with TS values
+```{r}
+name_files3 = dir("outputs/sen3")
+
+# collate all the outputs
+dat_temp = data.frame(matrix(NA, ncol = 12, nrow = 0))
+
+start_k = 1
+end_k = length(name_files2)
+for (k in start_k:end_k){
+  dat_temp_in = read.csv(paste0("outputs/sen3/", name_files3[k]))
+  dat_temp_in = dat_temp_in %>% dplyr::select(run_index:time)
+  dat_temp = rbind(dat_temp, dat_temp_in %>% mutate(`name_files3[k]` = name_files3[k]))
+}
+
+# get proportion of districts with outbreaks
+dat_temp = dat_temp %>% group_by(`name_files3[k]`, run_index, district) %>% arrange(time) %>%
+  mutate(cumI = cumsum(I))
+dat_temp = dat_temp %>% ungroup() %>% filter(time == max(time))
+dat_temp = dat_temp %>% ungroup() %>% group_by(`name_files3[k]`, run_index) %>%
+  summarize(prop_out = sum(cumI>=1) / n())
+
+# pull together information on the coefficient values
+name_files = dir("outputs/sensitivity5")
+dat_temp$`name_files3[k]` = gsub(".csv", "", dat_temp$`name_files3[k]`)
+dat_temp$`name_files3[k]` = as.numeric(dat_temp$`name_files3[k]`)
+for (i in 1:nrow(dat_temp)){
+  dat_temp$name_f[i] = name_files[dat_temp$`name_files3[k]`[i]]
+}
+
+
+# separate into variable values
+dat_temp$p = gsub(".rds", "", dat_temp$name_f)
+dat_temp$p = gsub("M_CDR_TS_sen_p_", "", dat_temp$p)
+```
+
+```{r}
+# flip so that we get proportion that's described by the second dataset
+dat_temp$p_fact = factor(1 - as.numeric(dat_temp$p))
+   # plot proportion of districts with an outbreak
+   ggplot(dat_temp, aes(x = p_fact, y = prop_out))+
+geom_boxplot(notch = TRUE)+
+     theme_bw() + 
+     xlab("Proportion described by Travel survey") + 
+     ylab("Proportion distribts with introductions") + 
+     ggtitle("Proportion of districts with outbreak")+
+      theme(text = element_text(size = 20)) 
+ggsave("../aim 3 manuscript/new figures/combo_CDR_TS_sd.pdf", width = 9, height = 6)
+
+```
+
+Combining CDR with TS values for more susceptible districts
+```{r}
+name_files3 = dir("outputs/sen4")
+
+# collate all the outputs
+dat_temp = data.frame(matrix(NA, ncol = 12, nrow = 0))
+
+start_k = 1
+end_k = length(name_files2)
+for (k in start_k:end_k){
+  dat_temp_in = read.csv(paste0("outputs/sen4/", name_files3[k]))
+  dat_temp_in = dat_temp_in %>% dplyr::select(run_index:time)
+  dat_temp = rbind(dat_temp, dat_temp_in %>% mutate(`name_files3[k]` = name_files3[k]))
+}
+
+# get proportion of districts with outbreaks
+dat_temp = dat_temp %>% group_by(`name_files3[k]`, run_index, district) %>% arrange(time) %>%
+  mutate(cumI = cumsum(I))
+dat_temp = dat_temp %>% ungroup() %>% filter(time == max(time))
+dat_temp = dat_temp %>% ungroup() %>% group_by(`name_files3[k]`, run_index) %>%
+  summarize(prop_out = sum(cumI>=1) / n())
+
+# pull together information on the coefficient values
+name_files = dir("outputs/sensitivity3")
+dat_temp$`name_files3[k]` = gsub(".csv", "", dat_temp$`name_files3[k]`)
+dat_temp$`name_files3[k]` = as.numeric(dat_temp$`name_files3[k]`)
+for (i in 1:nrow(dat_temp)){
+  dat_temp$name_f[i] = name_files[dat_temp$`name_files3[k]`[i]]
+}
+
+
+# separate into variable values
+dat_temp$p = gsub(".rds", "", dat_temp$name_f)
+dat_temp$p = gsub("M_CDR_TS_sen_p_", "", dat_temp$p)
+```
+
+```{r}
+# flip so that we get proportion that's described by the second dataset
+dat_temp$p_fact = factor(1 - as.numeric(dat_temp$p))
+   # plot proportion of districts with an outbreak
+   ggplot(dat_temp, aes(x = p_fact, y = prop_out))+
+geom_boxplot(notch = TRUE)+
+     theme_bw() + 
+     xlab("Proportion described by Travel survey") + 
+     ylab("Proportion distribts with introductions") + 
+     ggtitle("Proportion of districts with outbreak")+
+      theme(text = element_text(size = 20)) 
+ggsave("../aim 3 manuscript/new figures/combo_CDR_TS_sd_su.pdf", width = 9, height = 6)
+
+```
+
+## Check how well models fit for each other
+```{r}
+D_full <- readRDS("../data/dist_data_full.rds")               
+N_full <- readRDS("../data/pop_data_full.rds")
+D_full = data.matrix(as.data.frame(D_full)) / 1000
+all_data_full = list("D" = D_full, "N" = N_full)
+
+# predict
+pred_cdr <- predict(mod_exp, newdata = all_data_full,  seed = 245)
+pred_FB <- predict(mod_exp_FB, newdata = all_data_full,  seed = 245)
+pred_ts <- predict(mod_exp_TS, newdata = all_data_full,  seed = 245)
+
+# compare with observed from each dataset
+# CDR
+M_diag = readRDS('../data/OD_data_diag.rds')
+M_diag = data.matrix(as.data.frame(M_diag))
+
+M2 = as.matrix(M_diag, dimnames = c("origin", "destination"))
+diag(M2) = NA # null out diagonals
+
+# residuals:
+#  CDR pred - CDR obs
+diag(pred_cdr) = NA
+pred_cdr = pred_cdr[rownames(M2), colnames(M2)]
+# convert to probabilities
+for (i in 1:nrow(pred_cdr)){
+ # for (j in 1:ncol(pred_cdr)){
+    pred_cdr[i,] = pred_cdr[i,] / sum(pred_cdr[i,], na.rm=TRUE)
+#  }
+}
+M2_prob = M2
+for (i in 1:nrow(M2)){
+  M2_prob[i,] = M2_prob[i,] / sum(M2_prob[i,], na.rm=TRUE)
+}
+res_CDR_CDR = pred_cdr - M2_prob 
+# wide format
+res_CDR_CDR = data.frame(res_CDR_CDR) %>% mutate(origin = rownames(res_CDR_CDR))
+res_CDR_CDR = res_CDR_CDR %>% pivot_longer(cols = -c(origin), names_to = "destination", values_to = "trips")
+res_CDR_CDR = res_CDR_CDR %>% filter(is.na(trips)==FALSE)
+ggplot(res_CDR_CDR, aes(x = origin, y = trips)) + 
+  geom_boxplot(alpha = 0.4)+
+  #scale_y_continuous(trans = 'sqrt')+
+  theme_minimal()
+
+# FB pred - CDR obs
+diag(pred_FB) = NA
+pred_FB = pred_FB[rownames(M2), colnames(M2)]
+for (i in 1:nrow(pred_FB)){
+  pred_FB[i,] = pred_FB[i,] / sum(pred_FB[i,], na.rm=TRUE)
+}
+res_FB_CDR = pred_FB - M2_prob 
+# wide format
+res_FB_CDR = data.frame(res_FB_CDR) %>% mutate(origin = rownames(res_FB_CDR))
+res_FB_CDR = res_FB_CDR %>% pivot_longer(cols = -c(origin), names_to = "destination", values_to = "trips")
+res_FB_CDR = res_FB_CDR %>% filter(is.na(trips)==FALSE)
+ggplot(res_FB_CDR, aes(x = origin, y = trips)) + 
+  geom_boxplot(alpha = 0.4)+
+  #scale_y_continuous(trans = 'log2')+
+  theme_minimal()
+  
+# merge together
+res_FBandCDR = plyr::join(res_CDR_CDR, res_FB_CDR, by = c("origin", "destination"))
+names(res_FBandCDR) = c("origin", "destination", "CDR", "Facebook")
+# add 1 when magnitude of residual is greater than in CDR
+res_FBandCDR = res_FBandCDR %>% mutate(res_greater = ifelse(abs(Facebook)>abs(CDR), "Greater", "Smaller"))
+ggplot(res_FBandCDR) + 
+  geom_point(aes(x = CDR, y = Facebook, color = res_greater), alpha = 0.4)+
+  geom_line(aes(x = CDR, y = CDR))+
+  scale_color_aaas(name = "Residual from Facebook greater\nthan mobile phone data")+
+  theme_minimal()+
+  xlab("Residual probability from Mobile phone data")+
+  ylab("Residual probability from Facebook data")+
+     theme(text = element_text(size = 20),
+           legend.position = "none") 
+
+# histogram of residuals
+res_FBandCDR_long = res_FBandCDR %>% pivot_longer(cols = c(CDR, Facebook), 
+                                                  names_to = "Dataset",
+                                                  values_to = "Residual")
+ggplot(res_FBandCDR_long, aes(x = Residual, fill = Dataset)) + 
+  geom_histogram(alpha = 0.5, position='identity', bins =1000)+
+  theme_minimal()
+
+# try a boxplot
+ggplot(res_FBandCDR_long, aes(y = Residual, x= Dataset, color = Dataset))+
+  geom_boxplot()
+
+# violin plot
+res_FBandCDR_long = res_FBandCDR_long %>% mutate(Dataset = ifelse(Dataset %in% "CDR", "Mobile phone", Dataset))
+ggplot(res_FBandCDR_long, aes(x = Dataset, y = Residual, color = Dataset, fill = Dataset))+
+  geom_violin(aes(fill = Dataset, fill = after_scale(colorspace::lighten(fill, .5))),
+              size = 1.2, bw=.05)+
+  theme_minimal() + 
+  theme(text = element_text(size = 20), legend.position = "none") + 
+  scale_fill_aaas() + 
+  scale_color_aaas()
+
+
+
+# ridgeline plot
+ggplot(res_FBandCDR_long, aes(x = Residual, y = Dataset, color = Dataset, fill = Dataset))+
+  coord_cartesian(clip = "off") + 
+  ggridges::geom_density_ridges(alpha = .7, size = 1.5)
+
+
+
+
+```

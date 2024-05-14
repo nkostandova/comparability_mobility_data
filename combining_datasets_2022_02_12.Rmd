@@ -1,0 +1,1999 @@
+---
+title: "Results and figures"
+output: html_document
+date: "2023-02-11"
+---
+
+```{r setup, include=FALSE}
+library(rjags)
+library(dplyr)
+library(foreach)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+library(rgdal)
+library(rgeos)
+library(geosphere)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Plot probability of leaving the district, by district using raw data
+
+## Using CDRs
+```{r}
+M_diag = readRDS('../data/OD_data_diag.rds')
+M_diag = data.matrix(as.data.frame(M_diag))
+
+prob_stay_CDR = matrix(NA, nrow = nrow(M_diag), ncol = 2)
+colnames(prob_stay_CDR) = c("district", "ps_CDR")
+for (i in 1:nrow(prob_stay_CDR)){
+  prob_stay_CDR[i,1] = rownames(M_diag)[i]
+  prob_stay_CDR[i,2] = M_diag[i,i] / sum(M_diag[i,], na.rm=TRUE)
+}
+prob_stay_CDR = as.data.frame(prob_stay_CDR)
+prob_stay_CDR$ps_CDR = as.numeric(prob_stay_CDR$ps_CDR)
+```
+
+## Using TS
+```{r}
+mob_mat_TS = readRDS("data/mobility_mat_travelsurvey.RDS")
+M2 = as.matrix(mob_mat_TS$M, dimnames = c("origin", "destination"))
+
+# now have to get number that didn't travel out of district
+dat_full_withfpc = read.csv("data/dat_full_withfpc.csv")
+
+# quick look at profile of participants
+# create variable for age and sex
+dat_temp_ts = dat_full_withfpc |> filter(!(enrollment_status %in% "refused")) |>
+  mutate(sex_p = ifelse(agegroup_labs %in% "Adult", SEX, caregiver_sex),
+                                         age_p = ifelse(agegroup_labs %in% "Adult", Age2, caregiver_age))
+table(dat_temp_ts$sex_p)
+summary(dat_temp_ts$age_p)
+
+# number staying in = those that didn't have an overnight trip + those that traveled within district
+# get those that didn't travel
+travel_mat = dat_full_withfpc %>% group_by(DIST, overnight_trips) %>% summarize(count = n())
+travel_mat = travel_mat %>% filter(overnight_trips %in% "No")
+# get those that traveled within district
+travel_ndola = read.csv("../data/locat_dist_ndola.csv")
+travel_choma = read.csv("../data/locat_dist_choma.csv")
+travel_ndola_samedist = travel_ndola %>% filter(District == "Within same district")
+travel_choma_samedist = travel_choma %>% filter(District == "Within same district")
+stay_mat = travel_mat$count + c(travel_ndola_samedist$Frequency, travel_choma_samedist$Frequency)
+names(stay_mat) = c("ndola", "choma")
+
+# add that as diagonals to the travel matrix
+M2["choma", "choma"] = stay_mat["choma"]
+M2["ndola", "ndola"] = stay_mat["ndola"]
+
+
+prob_stay_TS = matrix(NA, nrow = nrow(M2), ncol = 2)
+colnames(prob_stay_TS) = c("district", "ps_TS")
+for (i in 1:nrow(prob_stay_TS)){
+  prob_stay_TS[i,1] = rownames(M2)[i]
+  prob_stay_TS[i,2] = M2[i,i] / sum(M2[i,], na.rm=TRUE)
+}
+prob_stay_TS = as.data.frame(prob_stay_TS)
+prob_stay_TS$ps_TS = as.numeric(prob_stay_TS$ps_TS)
+
+
+## this is the two-month probability, so scale it to correspond to a 1-month probability
+prob_stay_TS$ps_TS = 1 - (1 - prob_stay_TS$ps_TS)/2
+```
+
+## Using FB
+
+```{r}
+fb_dat = read.csv("data/fb_data.csv")
+# aggregate at admin 2 level
+
+# first, replace NAs with 0s
+fb_dat["n_crisis"][is.na(fb_dat["n_crisis"])] <- 0
+fb_dat["n_baseline"][is.na(fb_dat["n_baseline"])] <- 0
+
+# now, collapse over the entire time period, at district level
+fb_dat_agg = fb_dat %>% group_by(start_dist, end_dist) %>% summarize(tot_trips = sum(n_crisis),
+                                                                     tot_trips_base = sum(n_baseline))
+
+fb_dat_agg$start_dist = tolower(fb_dat_agg$start_dist)
+fb_dat_agg$end_dist = tolower(fb_dat_agg$end_dist)
+
+
+M_fb_all = mobility::get_mob_matrix(orig = fb_dat_agg$start_dist,
+                                dest = fb_dat_agg$end_dist,
+                                value = fb_dat_agg$tot_trips) 
+saveRDS(M_fb_all, "outputs/feb11/M_fb_all.RDS")
+# get rid of 0 ones
+fb_dat_agg = fb_dat_agg %>% filter(tot_trips!=0)
+
+# keep only districts that have at least one travel out
+fb_dist_travel = fb_dat_agg %>% ungroup() %>% group_by(start_dist) %>% summarize(dest_dist = n())
+dist_keep = fb_dist_travel %>% filter(dest_dist>1) %>% dplyr::select(start_dist) # 16 districts
+dist_keep = dist_keep$start_dist
+
+fb_dat_16 = fb_dat_agg %>% filter(start_dist %in% dist_keep)
+end_dist_keep = unique(fb_dat_16$end_dist) # all starting districts are in these - so keep the 19 districts
+
+fb_dat_19 = fb_dat_agg %>% filter(start_dist %in% end_dist_keep) %>% filter(end_dist %in% end_dist_keep)
+
+fb_dat_19$start_dist = tolower(fb_dat_19$start_dist)
+fb_dat_19$end_dist = tolower(fb_dat_19$end_dist)
+
+
+# make a sparse matrix - 19 x 19
+M_fb = mobility::get_mob_matrix(orig = fb_dat_19$start_dist,
+                                dest = fb_dat_19$end_dist,
+                                value = fb_dat_19$tot_trips) 
+write.csv(M_fb, "outputs/feb11/M_fb.csv")
+
+prob_stay_FB = matrix(NA, nrow = nrow(M_fb), ncol = 2)
+colnames(prob_stay_FB) = c("district", "ps_FB")
+for (i in 1:nrow(prob_stay_FB)){
+  prob_stay_FB[i,1] = rownames(M_fb)[i]
+  prob_stay_FB[i,2] = M_fb[i,i] / sum(M_fb[i,], na.rm=TRUE)
+}
+prob_stay_FB = as.data.frame(prob_stay_FB)
+prob_stay_FB$ps_FB = as.numeric(prob_stay_FB$ps_FB)
+# drop the zero ones
+prob_stay_FB = prob_stay_FB %>% filter(ps_FB != 1)
+```
+
+## DHS
+```{r}
+dhs_dat = read.csv("dhs_men_wom.csv") #112 unique districts
+dhs_trav = dhs_dat %>% group_by(district) %>% summarize(travel_12mo = sum(travel_12months*sample_weight)/sum(sample_weight),
+                                                        tot_pop = sum(sample_weight))
+dhs_trav = dhs_trav %>% mutate(travel_1mo = travel_12mo/12)
+prob_stay_dhs = 1 - dhs_trav$travel_1mo
+names(prob_stay_dhs) = tolower(dhs_trav$district)
+
+prob_stay_dhs = data.frame(district = names(prob_stay_dhs), 
+                           ps_DHS = prob_stay_dhs)
+```
+
+## Combine all of them 
+```{r}
+prob_stay_all = merge(prob_stay_CDR, 
+                      prob_stay_TS, by = "district", all=TRUE)
+prob_stay_all = merge(prob_stay_all, 
+                      prob_stay_FB, by = "district", all=TRUE)
+prob_stay_all = merge(prob_stay_all,
+                      prob_stay_dhs, by = "district", all = TRUE)
+
+# save output
+write.csv(prob_stay_all, "outputs/feb11/prob_stay_all_raw.csv")
+
+# make into a long dataframe
+prob_stay_all_long = prob_stay_all %>% pivot_longer(cols = c(ps_CDR, ps_TS, ps_FB, ps_DHS),
+                                                    names_to = "dataset")
+prob_stay_all_long = prob_stay_all_long %>% mutate(dataset_label = case_when(dataset == "ps_CDR" ~ "CDR",
+                                                                             dataset == "ps_TS" ~ "Travel survey",
+                                                                             dataset == "ps_FB" ~ "Facebook",
+                                                                             dataset == "ps_DHS" ~ "DHS"))
+prob_stay_all_long = prob_stay_all_long %>% group_by(dataset) %>% mutate(prob = value / sum(value, na.rm=TRUE))
+
+# look at number of origins
+prob_stay_all_long %>% filter(is.na(value)==FALSE) %>% ungroup() %>% group_by(dataset_label) %>% summarize(count = n())
+```
+
+```{r}
+# get summary of IQR
+prob_stay_all_long %>% group_by(dataset) %>% summarize(median = median(value, na.rm=TRUE),
+                                                       mode = mode(value))
+
+# make a histogram of probabilities
+ggplot(prob_stay_all_long, aes(x = value)) +
+  geom_histogram(fill = "cornflowerblue", color = "gray") +
+  theme_minimal() + xlab("Probability") + ylab("Count") + 
+  facet_wrap(~dataset_label)
+ggsave("figures/histogram_prob_stay_in.pdf",  dpi=700)
+
+# plot densities
+ggplot(prob_stay_all_long, aes(x = value, fill = dataset_label, color = dataset_label)) +
+  geom_density(alpha = .3, aes(y = ..scaled..))+  
+  theme_minimal() + xlab("Probability") + ylab("Density") +
+  scale_fill_discrete(name = "Dataset")+
+  scale_color_discrete(name = "Dataset")+
+  theme(text = element_text(size = 16))
+ggsave("figures/densities_prob_stay_in.pdf",  dpi=700, width = 11, height = 9)
+
+# plot all datasets probabilities on same plot, organize districts by population size
+# add things like density, population size, distance from lusaka
+dens_dat = read.csv("../data/district_area_pop_115_perUNadjsutedWorldPop.csv")
+dens_dat$lower_dist = tolower(dens_dat$district)
+prob_stay_all_long = merge(prob_stay_all_long, dens_dat %>% select(lower_dist, density, pop_2020sum), by.x = "district", by.y = "lower_dist", all.x=TRUE)
+# split into quartiles for plotting
+nquant = 3
+prob_stay_all_long$quantile_pop = ntile(-prob_stay_all_long$pop_2020sum, 3)
+
+prob_stay_all_long$district = factor(prob_stay_all_long$district,
+                                          levels = unique(prob_stay_all_long$district[order(-prob_stay_all_long$pop_2020sum)]), ordered=TRUE)
+
+ggplot(prob_stay_all_long %>% arrange(desc(pop_2020sum)), aes(color = dataset_label)) +
+  geom_point(aes(x = district, y = value))+
+  theme_minimal() + xlab("District") + ylab("Probability of staying in") +
+  scale_color_discrete(name = "Dataset")+
+  theme(text = element_text(size = 16),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) + 
+  facet_wrap(~quantile_pop, nrow = nquant, scale="free_x")
+ggsave("figures/district_prob_stay_in.pdf",  dpi=700, width = 11, height = 9)
+```
+
+## Now look at probability of staying in by phone ownership and Internet use
+```{r}
+dhs_trav_phone = dhs_dat %>% group_by(district, owns_mobile_phone) %>% summarize(travel_12mo = sum(travel_12months*sample_weight)/sum(sample_weight),
+                                                        tot_pop = sum(sample_weight))
+dhs_trav_phone = dhs_trav_phone %>% mutate(travel_1mo = travel_12mo/12)
+dhs_trav_phone = dhs_trav_phone %>% mutate(ps_DHS = 1- travel_1mo)
+dhs_trav_phone$district = tolower(dhs_trav_phone$district)
+dhs_trav_phone$owns_mobile_phone = as.factor(dhs_trav_phone$owns_mobile_phone)
+dhs_trav_phone$owns_mobile_phone = factor(dhs_trav_phone$owns_mobile_phone,
+                                          levels = c("0", "1"),
+                                          labels = c("No", "Yes"))
+
+
+hist_dhs_phone = ggplot(dhs_trav_phone, aes(x = ps_DHS, fill = owns_mobile_phone, color = owns_mobile_phone)) +
+  geom_histogram(position = "identity", alpha = 0.5)+
+  theme_minimal() + xlab("Probability") + xlim(NA, 1)+
+  scale_fill_discrete(name = "Phone ownership")+
+  scale_color_discrete(name = "Phone ownership")+
+  theme(text = element_text(size = 16))
+
+
+# do the same for internet use
+dhs_trav_int = dhs_dat %>% group_by(district, use_internet) %>% summarize(travel_12mo = sum(travel_12months*sample_weight)/sum(sample_weight),
+                                                        tot_pop = sum(sample_weight))
+dhs_trav_int = dhs_trav_int %>% mutate(travel_1mo = travel_12mo/12)
+dhs_trav_int = dhs_trav_int %>% mutate(ps_DHS = 1- travel_1mo)
+dhs_trav_int$district = tolower(dhs_trav_int$district)
+dhs_trav_int$use_internet = as.factor(dhs_trav_int$use_internet)
+dhs_trav_int$use_internet = factor(dhs_trav_int$use_internet,
+                                          levels = c("0", "1"),
+                                          labels = c("No", "Yes"))
+
+hist_dhs_internet = ggplot(dhs_trav_int %>% filter(is.na(use_internet)==FALSE), aes(x = ps_DHS, fill = use_internet, color = use_internet)) +
+  geom_histogram(position = "identity", alpha = 0.5)+
+  theme_minimal() + xlab("Probability") + xlim(NA, 1)+
+  scale_fill_discrete(name = "Internet use")+
+  scale_color_discrete(name = "Internet use")+
+  theme(text = element_text(size = 16))
+
+legend_phone <- cowplot::get_legend(
+  # create some space to the left of the legend
+  hist_dhs_phone + theme(legend.box.margin = margin(0, 0, 0, 12)) + scale_fill_aaas() + scale_color_aaas()
+)
+legend_int <- cowplot::get_legend(
+  # create some space to the left of the legend
+  hist_dhs_internet + theme(legend.box.margin = margin(0, 0, 0, 12)) + scale_fill_aaas() + scale_color_aaas()
+)
+
+
+cowplot::plot_grid(hist_dhs_phone + theme(legend.position="none") + scale_fill_aaas() + scale_color_aaas() + ylab("Frequency"),
+                   legend_phone,
+                   hist_dhs_internet + theme(legend.position="none")+ scale_fill_aaas() + scale_color_aaas() + ylab("Frequency"),
+                   legend_int,
+                   nrow = 2, rel_widths = c(3, .4))
+ggsave("figures/stratified_dhs_prob.pdf",  dpi=700, width = 11, height = 9)
+
+# join probability of staying in filtering on those that have internet and those that have phone
+dhs_trav_phone_yes = dhs_trav_phone %>% filter(owns_mobile_phone == "Yes")
+dhs_trav_phone_yes = dhs_trav_phone_yes %>% rename(ps_DHS_phone = ps_DHS)
+
+prob_stay_all = merge(prob_stay_all,
+                      dhs_trav_phone_yes %>% select(district, ps_DHS_phone), by = "district", all = TRUE)
+
+
+dhs_trav_int_yes = dhs_trav_int %>% filter(use_internet == "Yes")
+dhs_trav_int_yes = dhs_trav_int_yes %>% rename(ps_DHS_int = ps_DHS)
+
+prob_stay_all = merge(prob_stay_all,
+                      dhs_trav_int_yes %>% select(district, ps_DHS_int), by = "district", all = TRUE)
+
+# plot separately estimates by districts restricting to those with CDRs + internet
+min_val = min(min(prob_stay_all$ps_CDR, na.rm=TRUE), 
+              min(prob_stay_all$ps_DHS_phone, na.rm=TRUE))
+max_val = max(max(prob_stay_all$ps_CDR, na.rm=TRUE), 
+              max(prob_stay_all$ps_DHS_phone, na.rm=TRUE))
+ggplot(prob_stay_all, aes(x = ps_CDR, y = ps_DHS_phone)) + 
+  geom_point(color = pal_npg("nrc")(9)[1]) + theme_bw() + 
+  xlab("CDR") + ylab("DHS, phone owners")+
+  ylim(min_val, max_val) + xlim(min_val, max_val)+
+  theme(text = element_text(size = 16))
+ggsave("figures/CDR_DHSphone.pdf",  dpi=700, width = 11, height = 9)
+
+cor(prob_stay_all$ps_CDR, prob_stay_all$ps_DHS_phone,  method = "pearson", use = "complete.obs")
+
+min_val = min(min(prob_stay_all$ps_FB, na.rm=TRUE), 
+              min(prob_stay_all$ps_DHS_int, na.rm=TRUE))
+max_val = max(max(prob_stay_all$ps_FB, na.rm=TRUE), 
+              max(prob_stay_all$ps_DHS_int, na.rm=TRUE))
+ggplot(prob_stay_all, aes(x = ps_FB, y = ps_DHS_int)) + 
+  geom_point(color = pal_npg("nrc")(9)[2]) + theme_bw() + 
+  xlab("Facebook") + ylab("DHS, Internet users")+
+    ylim(min_val, max_val) + xlim(min_val, max_val)+
+    theme(text = element_text(size = 16))
+ggsave("figures/FB_DHSint.pdf",  dpi=700, width = 11, height = 9)
+
+cor(prob_stay_all$ps_FB, prob_stay_all$ps_DHS_int,  method = "pearson", use = "complete.obs")
+```
+
+## Weight CDRs by DHS to allow for heterogeneity in travel by phone ownership
+
+```{r}
+dhs_travel_phone_wide = dhs_trav_phone %>% select(district, owns_mobile_phone, tot_pop, ps_DHS) %>%
+  pivot_wider(id_cols = c(district), names_from = owns_mobile_phone, values_from = c(tot_pop, ps_DHS))
+dhs_travel_phone_wide = merge(dhs_travel_phone_wide,
+                              prob_stay_all %>% select(district, ps_CDR), by = "district", all = TRUE)
+dhs_travel_phone_wide = dhs_travel_phone_wide %>%
+  mutate(ps_CDR_wtDHS = (ps_CDR * tot_pop_Yes + ps_CDR * ps_DHS_No / ps_DHS_Yes * tot_pop_No) / (tot_pop_Yes + tot_pop_No))
+
+colors <- c("Raw CDRs" = pal_npg("nrc")(9)[1], "Weighted CDRs" = pal_npg("nrc")(9)[2])
+ggplot(dhs_travel_phone_wide, aes(x = ps_CDR)) + 
+  geom_point(aes(y = ps_CDR, color = "Raw CDRs"))+
+  geom_point(aes(y = ps_CDR_wtDHS, color = "Weighted CDRs"))+
+  theme(text = element_text(size = 16)) + theme_bw() + xlab("") + ylab("")+
+  scale_color_manual(values = colors) + labs(color = "")
+ggsave("figures/CDR_weighted_vs_raw.pdf",  dpi=700, width = 11, height = 9)
+
+# Use this if loading in prob_stay_all_w_cov only
+ggplot(prob_stay_all_w_cov, aes(x = ps_CDR)) + 
+     geom_point(aes(y = ps_CDR, color = "Raw CDRs"), size = 1)+
+  geom_line(aes(y = ps_CDR, color = "Raw CDRs"))+
+     geom_point(aes(y = ps_CDR_wtDHS, color = "Weighted CDRs"), size = 1)+
+     theme(text = element_text(size = 20)) + theme_bw() + xlab("") + ylab("")+
+     scale_color_manual(values = colors) + labs(color = "")
+```
+
+## Weight FB by DHS to allow for heterogeneity in travel by Internet use
+```{r}
+dhs_trav_int_wide = dhs_trav_int %>% filter(is.na(use_internet) == FALSE) %>% 
+  select(district, use_internet, tot_pop, ps_DHS) %>%
+  pivot_wider(id_cols = c(district), names_from = use_internet, values_from = c(tot_pop, ps_DHS))
+dhs_travel_int_wide = merge(dhs_trav_int_wide,
+                              prob_stay_all %>% select(district, ps_FB), by = "district", all = TRUE)
+dhs_travel_int_wide = dhs_travel_int_wide %>%
+  mutate(ps_FB_wtDHS = (ps_FB * tot_pop_Yes + ps_FB * ps_DHS_No / ps_DHS_Yes * tot_pop_No) / (tot_pop_Yes + tot_pop_No))
+# cap at 1
+dhs_travel_int_wide = dhs_travel_int_wide %>% mutate(ps_FB_wtDHS = ifelse(ps_FB_wtDHS >1, 1, ps_FB_wtDHS))
+
+colors <- c("Raw CDRs" = pal_npg("nrc")(9)[3], "Weighted CDRs" = pal_npg("nrc")(9)[4])
+ggplot(dhs_travel_int_wide, aes(x = ps_FB)) + 
+  geom_point(aes(y = ps_FB, color = "Raw CDRs"))+
+  geom_point(aes(y = ps_FB_wtDHS, color = "Weighted CDRs"))+
+  theme(text = element_text(size = 16)) + theme_bw() + xlab("") + ylab("")+
+  scale_color_manual(values = colors) + labs(color = "")
+ggsave("figures/FB_weighted_vs_raw.pdf",  dpi=700, width = 11, height = 9)
+
+
+## only run if loading in probability of staying in 
+colors <- c("Raw Facebook" = pal_npg("nrc")(9)[3], "Weighted Facebook" = pal_npg("nrc")(9)[4])
+ggplot(prob_stay_all_w_cov, aes(x = ps_FB)) + 
+     geom_point(aes(y = ps_FB, color = "Raw Facebook"), size = 1)+
+  geom_line(aes(y = ps_FB, color = "Raw Facebook"))+
+     geom_point(aes(y = ps_FB_wtDHS, color = "Weighted Facebook"), size = 1)+
+     theme(text = element_text(size = 20)) + theme_bw() + xlab("") + ylab("")+
+     scale_color_manual(values = colors) + labs(color = "")
+```
+
+## Try a regression for probability of staying in, using raw probabilities
+```{r}
+# merge in weighted probabilities accounting for Internet use and phone ownership
+prob_stay_all = merge(prob_stay_all,
+                      dhs_travel_int_wide %>% select(district, ps_FB_wtDHS),
+                      by = "district", all.x=TRUE)
+prob_stay_all = merge(prob_stay_all,
+                      dhs_travel_phone_wide %>% select(district, ps_CDR_wtDHS),
+                      by = "district", all.x=TRUE)
+
+
+# merge in distance from lusaka, density and population
+prob_stay_all_w_cov = merge(prob_stay_all, 
+                            dens_dat %>% select(lower_dist, density, pop_2020sum),
+                            by.x = "district", by.y = "lower_dist", all.x = TRUE)
+centroids_SAdf = read.csv("data/coordinates_dist.csv")
+prob_stay_all_w_cov = merge(prob_stay_all_w_cov,
+                            centroids_SAdf %>% select(ADM2, dist_km),
+                            by.x = "district", by.y = "ADM2", all.x=TRUE)
+write.csv(prob_stay_all_w_cov, "outputs/feb11/prob_stay_all_w_cov.csv")
+```
+
+```{r}
+# CDRs
+hist(prob_stay_all_w_cov$ps_CDR, main = "Raw CDRs", xlab = "Probability of staying")
+lin_mod_CDR<-lm(ps_CDR ~ density + pop_2020sum + dist_km, data = prob_stay_all_w_cov)
+base::summary(lin_mod_CDR)
+par(mfrow=c(2,2))
+plot(lin_mod_CDR)
+par(mfrow=c(1,1))
+residuals_lr = prob_stay_all_w_cov 
+residuals_lr = residuals_lr  %>% mutate(resid_CDR = predict.lm(lin_mod_CDR, newdata=prob_stay_all_w_cov) - ps_CDR)
+hist(residuals_lr$resid_CDR, main = "Residuals, Raw CDRs")
+
+coef_lin_mod_CDR = base::summary(lin_mod_CDR)$coefficients
+
+
+# TS -- can't because only two districts\
+
+# FB
+hist(prob_stay_all_w_cov$ps_FB, main = "FB", xlab = "Probability of staying")
+lin_mod_FB<-lm(ps_FB ~ density + pop_2020sum + dist_km, data = prob_stay_all_w_cov)
+base::summary(lin_mod_FB)
+par(mfrow=c(2,2))
+plot(lin_mod_FB)
+par(mfrow=c(1,1))
+residuals_lr = prob_stay_all_w_cov 
+residuals_lr = residuals_lr  %>% mutate(resid_FB = predict.lm(lin_mod_FB, newdata=prob_stay_all_w_cov) - ps_FB)
+hist(residuals_lr$resid_FB, main = "Residuals, FB")
+
+coef_lin_mod_FB = base::summary(lin_mod_FB)$coefficients
+
+# DHS
+hist(prob_stay_all_w_cov$ps_DHS, main = "DHS", xlab = "Probability of staying")
+lin_mod_DHS<-lm(ps_DHS ~ density + pop_2020sum + dist_km, data = prob_stay_all_w_cov)
+base::summary(lin_mod_DHS)
+par(mfrow=c(2,2))
+plot(lin_mod_DHS)
+par(mfrow=c(1,1))
+residuals_lr = prob_stay_all_w_cov 
+residuals_lr = residuals_lr  %>% mutate(resid_DHS = predict.lm(lin_mod_DHS, newdata=prob_stay_all_w_cov) - ps_DHS)
+hist(residuals_lr$resid_DHS, main = "Residuals, DHS")
+
+coef_lin_mod_DHS = base::summary(lin_mod_DHS)$coefficients
+
+
+# CDR, weighted to DHS phone ownership
+hist(prob_stay_all_w_cov$ps_CDR_wtDHS, main = "CDR, wt to DHS phone ownership", xlab = "Probability of staying")
+lin_mod_CDR_wtDHS<-lm(ps_CDR_wtDHS ~ density + pop_2020sum + dist_km, data = prob_stay_all_w_cov)
+base::summary(lin_mod_CDR_wtDHS)
+par(mfrow=c(2,2))
+plot(lin_mod_CDR_wtDHS)
+par(mfrow=c(1,1))
+residuals_lr = prob_stay_all_w_cov 
+residuals_lr = residuals_lr  %>% mutate(resid_CDR_wtDHS = predict.lm(lin_mod_CDR_wtDHS, newdata=prob_stay_all_w_cov) - ps_CDR_wtDHS)
+hist(residuals_lr$resid_CDR_wtDHS, main = "Residuals, CDR, wt to DHS phone ownership")
+
+coef_lin_mod_CDR_wtDHS = base::summary(lin_mod_CDR_wtDHS)$coefficients
+
+# FB, weighted to DHS internet use
+hist(prob_stay_all_w_cov$ps_FB_wtDHS, main = "FB, wt to DHS internet ownership", xlab = "Probability of staying")
+lin_mod_FB_wtDHS<-lm(ps_FB_wtDHS ~ density + pop_2020sum + dist_km, data = prob_stay_all_w_cov)
+base::summary(lin_mod_FB_wtDHS)
+par(mfrow=c(2,2))
+plot(lin_mod_FB_wtDHS)
+par(mfrow=c(1,1))
+residuals_lr = prob_stay_all_w_cov 
+residuals_lr = residuals_lr  %>% mutate(resid_FB_wtDHS = predict.lm(lin_mod_FB_wtDHS, newdata=prob_stay_all_w_cov) - ps_FB_wtDHS)
+hist(residuals_lr$resid_FB_wtDHS, main = "Residuals, FB, wt to DHS internet use")
+
+coef_lin_mod_FB_wtDHS = base::summary(lin_mod_FB_wtDHS)$coefficients
+
+
+# combine
+coef_lin_all = rbind(as.data.frame(coef_lin_mod_CDR) %>% mutate(coefficient = rownames(coef_lin_mod_CDR),
+                                                                dataset = "CDR"),
+                     as.data.frame(coef_lin_mod_FB) %>% mutate(coefficient = rownames(coef_lin_mod_FB),
+                                                                dataset = "FB"),
+                     as.data.frame(coef_lin_mod_DHS) %>% mutate(coefficient = rownames(coef_lin_mod_DHS),
+                                                                dataset = "DHS"),
+                      as.data.frame(coef_lin_mod_CDR_wtDHS) %>% mutate(coefficient = rownames(coef_lin_mod_CDR_wtDHS),
+                                                                dataset = "CDR, wt DHS"),
+                      as.data.frame(coef_lin_mod_FB_wtDHS) %>% mutate(coefficient = rownames(coef_lin_mod_FB_wtDHS),
+                                                                dataset = "FB, wt DHS")
+                     )
+
+# labels for coefficients
+coef_lin_all = coef_lin_all %>% mutate(coef_label = case_when(coefficient %in% "(Intercept)" ~ "Intercept",
+                                                              coefficient %in% "density" ~ "Population density",
+                                                              coefficient %in% "dist_km" ~ "Distance from Lusaka district",
+                                                              coefficient %in% "pop_2020sum" ~ "Population, 2020"))
+# plot
+ggplot(coef_lin_all, aes(x = dataset))+
+  geom_point(aes(y = Estimate)) + 
+  geom_errorbar(aes(ymin = Estimate - 1.96*`Std. Error`, ymax = Estimate + 1.96*`Std. Error`), width = 0.2) + 
+  facet_wrap(~coef_label, scales = "free_y")+
+  theme_bw()
+```
+
+# Fit models from mobility to just probability of travel
+```{r}
+library(mobility)
+num_chains = 4
+
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+## DHS
+
+```{r}
+# set up data to feed into model
+
+
+temp = merge(prob_stay_all_w_cov, dhs_trav %>% mutate(district = tolower(district)) %>% dplyr::select(district, tot_pop), by = "district", all.x=TRUE)
+
+total_dhs = temp$tot_pop # total number of people (weighted)
+names(total_dhs) = temp$district
+
+travel_dhs = round((1 - temp$ps_DHS)*temp$tot_pop) # get number of people that traveled
+names(travel_dhs) = temp$district
+
+# feed into model
+prob_travel_dhs = fit_prob_travel(travel = travel_dhs, total = total_dhs,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_dhs)
+```
+
+## CDR
+
+```{r}
+temp = rowSums(M_diag, na.rm=TRUE)
+temp2 = diag(M_diag)
+temp_c = data.frame(district = names(temp), tot = temp, stay = temp2)
+temp = merge(prob_stay_all_w_cov %>% select(district), temp_c, by = "district", all.x=TRUE)
+
+total_cdr = temp$tot # total number of people (weighted)
+names(total_cdr) = temp$district
+
+travel_cdr = round((temp$tot - temp$stay)) # get number of people that traveled
+names(travel_cdr) = temp$district
+
+# feed into model
+prob_travel_cdr = fit_prob_travel(travel = travel_cdr, total = total_cdr,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_cdr)
+```
+
+## Facebook
+
+```{r}
+temp = rowSums(M_fb, na.rm=TRUE)
+temp2 = diag(M_fb)
+temp_c = data.frame(district = names(temp), tot = temp, stay = temp2)
+temp = merge(prob_stay_all_w_cov %>% select(district), temp_c, by = "district", all.x=TRUE)
+
+total_fb = temp$tot # total number of people
+names(total_fb) = temp$district
+
+travel_fb = round((temp$tot - temp$stay)) # get number of people that traveled
+names(travel_fb) = temp$district
+
+# feed into model
+prob_travel_fb = fit_prob_travel(travel = travel_fb, total = total_fb,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_fb)
+```
+
+## Travel survey
+
+```{r}
+temp = rowSums(M2, na.rm=TRUE)
+temp2 = diag(M2)
+temp_c = data.frame(district = names(temp), tot = temp, stay = temp2)
+temp = merge(prob_stay_all_w_cov %>% select(district), temp_c, by = "district", all.x=TRUE)
+
+total_ts = temp$tot # total number of people
+names(total_ts) = temp$district
+
+travel_ts = round((temp$tot - temp$stay)/2) # get number of people that traveled and divide by 2 to get 1 month
+names(travel_ts) = temp$district
+
+# feed into model
+prob_travel_ts = fit_prob_travel(travel = travel_ts, total = total_ts,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_ts)
+```
+
+## FB with DHS 
+
+Note: which population size to use?FB or DHS? or FB corrected for DHS?
+```{r}
+temp = rowSums(M_fb, na.rm=TRUE)
+temp_c = data.frame(district = names(temp), tot = temp)
+temp = merge(prob_stay_all_w_cov %>% select(district, ps_FB_wtDHS), temp_c, by = "district", all.x=TRUE)
+
+total_fb_dhs = temp$tot # total number of people
+names(total_fb_dhs) = temp$district
+
+travel_fb_dhs = round(temp$tot-(temp$tot*temp$ps_FB_wtDHS)) # get number of people that traveled
+names(travel_fb_dhs) = temp$district
+
+# feed into model
+prob_travel_fb_dhs = fit_prob_travel(travel = travel_fb_dhs, total = total_fb_dhs,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_fb_dhs)
+```
+
+## CDR with DHS
+
+Note: which population size to use?FB or DHS? or FB corrected for DHS?
+```{r}
+temp = rowSums(M_diag, na.rm=TRUE)
+temp_c = data.frame(district = names(temp), tot = temp)
+temp = merge(prob_stay_all_w_cov %>% select(district, ps_CDR_wtDHS), temp_c, by = "district", all.x=TRUE)
+# stop those with value >1 at 1
+temp = temp %>% mutate(ps_CDR_wtDHS = ifelse(ps_CDR_wtDHS>1, 1, ps_CDR_wtDHS))
+
+total_cdr_dhs = temp$tot # total number of people
+names(total_cdr_dhs) = temp$district
+
+travel_cdr_dhs = round(temp$tot-(temp$tot*temp$ps_CDR_wtDHS)) # get number of people that traveled
+names(travel_cdr_dhs) = temp$district
+
+total_cdr_dhs[names(which(is.na(travel_cdr_dhs)))]=NA # assign missing to those that have missing travel
+
+# feed into model
+prob_travel_cdr_dhs = fit_prob_travel(travel = travel_cdr_dhs, total = total_cdr_dhs,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_cdr_dhs)
+```
+
+## Combine the coefficients
+
+```{r}
+combo_fitted_travel = rbind(as.data.frame(summary(prob_travel_dhs)) %>% mutate(dataset = "DHS") %>% mutate(coefficient = rownames(as.data.frame(summary(prob_travel_dhs)))),
+                            as.data.frame(summary(prob_travel_cdr)) %>% mutate(dataset = "CDR") %>% mutate(coefficient = rownames(as.data.frame(summary(prob_travel_cdr)))),
+                            as.data.frame(summary(prob_travel_fb)) %>% mutate(dataset = "FB")%>% mutate(coefficient = rownames(as.data.frame(summary(prob_travel_fb)))),
+                            as.data.frame(summary(prob_travel_ts)) %>% mutate(dataset = "TS")%>% mutate(coefficient = rownames(as.data.frame(summary(prob_travel_ts)))),
+                            as.data.frame(summary(prob_travel_fb_dhs)) %>% mutate(dataset = "FB, wt DHS")%>% mutate(coefficient = rownames(as.data.frame(summary(prob_travel_fb_dhs)))),
+                            as.data.frame(summary(prob_travel_cdr_dhs)) %>% mutate(dataset = "CDR, wt DHS")%>% mutate(coefficient = rownames(as.data.frame(summary(prob_travel_cdr_dhs)))))
+
+write.csv(combo_fitted_travel, "outputs/feb11/combo_fitted_travel.csv")
+
+# only plot the taus - and combine with population size for ease
+temp = rownames(as.data.frame(summary(prob_travel_dhs)))[1:115] # exclude DIC, deviance, pD
+temp_df = data.frame(coefs = temp, districts = prob_stay_all_w_cov$district, pop = prob_stay_all_w_cov$pop_2020sum)
+combo_fitted_travel_wcov = merge(combo_fitted_travel, temp_df, by.x = "coefficient", by.y = "coefs", all.x=TRUE)
+
+# get intervals and let lower bound to 0
+combo_fitted_travel_wcov = combo_fitted_travel_wcov %>% rowwise %>% mutate(ll = max(mean - 1.96*sd, 0),
+                                                               ul = max(mean + 1.96*sd, 0))
+
+# plot
+# split into quartiles for plotting
+nquant = 3
+combo_fitted_travel_wcov$quantile_pop = ntile(-combo_fitted_travel_wcov$pop, 3)
+
+combo_fitted_travel_wcov$districts = factor(combo_fitted_travel_wcov$districts,
+                                          levels = unique(combo_fitted_travel_wcov$districts[order(-combo_fitted_travel_wcov$pop)]), ordered=TRUE)
+
+write.csv(combo_fitted_travel_wcov, "outputs/feb11/combo_fitted_travel_wcov.csv")
+ggplot(combo_fitted_travel_wcov %>% arrange(desc(pop)) %>% filter(is.na(pop)==FALSE), aes(color = dataset)) +
+  geom_point(aes(x = districts, y = mean, color = dataset), position=position_dodge(width=1))+
+  geom_errorbar(aes(x = districts, ymin =ll, ymax = ul, color = dataset), position=position_dodge(width=1))+
+  theme_minimal() + xlab("District") + ylab("Probability of travel") +
+  scale_color_discrete(name = "Dataset")+
+  theme(text = element_text(size = 16),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) + 
+  facet_wrap(~quantile_pop, nrow = nquant, scale="free_x")
+ggsave("figures/district_prob_stay_in_fitted.pdf",  dpi=700, width = 15, height = 6)
+```
+
+# Use prior to inform probability of leaving - treat as meta-analysis
+
+## combine all original datasets
+```{r}
+datasets_keep = c("CDR", "DHS", "TS", "FB")
+meta_all_OG = data.frame(district = prob_stay_all_w_cov$district, 
+                              est = rep(NA, length(prob_stay_all_w_cov$district)),
+                              ll = rep(NA, length(prob_stay_all_w_cov$district)),
+                              ul = rep(NA, length(prob_stay_all_w_cov$district)),
+                              se = rep(NA, length(prob_stay_all_w_cov$district))
+                             )
+contrib_all_OG = matrix(NA, nrow = length(prob_stay_all_w_cov$district),
+                                ncol = 1+ length(datasets_keep))
+contrib_all_OG = as.data.frame(contrib_all_OG)
+names(contrib_all_OG) = c("district", datasets_keep)
+
+for (d in 1:length(prob_stay_all_w_cov$district)){
+  m.gen <- metagen(TE = mean,
+                 seTE = sd,
+                 studlab = dataset,
+                 fixed = TRUE,
+                 data = combo_fitted_travel_wcov %>% filter(districts %in% meta_all_OG$district[d]) %>% 
+                   filter(dataset %in% datasets_keep))
+  temp = base::summary(m.gen)
+  meta_all_OG[d,'est'] = temp$TE.random
+  meta_all_OG[d,'ll'] = temp$lower.random
+  meta_all_OG[d,'ul'] = temp$upper.random
+  meta_all_OG[d, 'se'] = temp$seTE.random
+  
+  contrib_all_OG[d,1] = meta_all_OG$district[d]
+  for (j in 1:length(datasets_keep)){
+  contrib_all_OG[d,j+1] = temp$w.random[j]/sum(temp$w.random)
+  }
+}
+
+write.csv(meta_all_OG, "outputs/feb11/meta_all_OG.csv")
+
+# plot relative contributions
+contrib_all_OG_long = contrib_all_OG %>% pivot_longer(cols = -c(district), names_to = "dataset", values_to = "contribution")
+
+# set order based on population size
+contrib_all_OG_long = merge(contrib_all_OG_long, combo_fitted_travel_wcov %>% select(districts, pop, quantile_pop) %>% group_by(districts) %>% slice(1),
+                            by.x = "district", by.y = "districts", all.x=TRUE)
+contrib_all_OG_long$district_fac = factor(contrib_all_OG_long$district,
+                                          levels = unique(contrib_all_OG_long$district[order(-contrib_all_OG_long$pop)]), ordered=TRUE)
+ggplot(contrib_all_OG_long, aes(fill = dataset, y = contribution, x = district_fac)) + 
+  geom_bar(position = 'stack', stat = "identity") + theme_bw() + 
+  xlab("District") + 
+  facet_wrap(~quantile_pop, scale="free_x", nrow = 3)+
+    theme(text = element_text(size = 16),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) 
+
+# look at the estimates used and what we pooled together
+fitted_travel_appA = rbind(combo_fitted_travel_wcov %>% filter(is.na(districts)==FALSE) %>% mutate(district = districts) %>%
+                             select(mean, ll, ul, district, dataset) %>% filter(dataset %in% datasets_keep),
+                           meta_all_OG %>% select(district, est, ll, ul) %>% rename(mean = est) %>% mutate(dataset = "pooled"))
+fitted_travel_appA = merge(fitted_travel_appA, combo_fitted_travel_wcov %>% group_by(districts) %>% select(districts, pop, quantile_pop) %>% slice(1), by.x = "district", by.y = "districts", all.x=TRUE)
+fitted_travel_appA$district = factor(fitted_travel_appA$district,
+                                          levels = unique(fitted_travel_appA$district[order(-fitted_travel_appA$pop)]), ordered=TRUE)
+fitted_travel_appA$dataset = factor(fitted_travel_appA$dataset,
+                                    levels = c("CDR", "DHS", "FB", "TS", "pooled"), ordered = TRUE)
+
+ggplot(fitted_travel_appA %>% arrange(desc(pop)) %>% filter(is.na(pop)==FALSE), aes(color = dataset)) +
+  geom_point(aes(x = district, y = mean, color = dataset), position=position_dodge(width=0.7))+
+  geom_errorbar(aes(x = district, ymin =ll, ymax = ul, color = dataset), position=position_dodge(width=0.7))+
+  theme_minimal() + xlab("District") + ylab("Probability of leaving") +
+  scale_color_discrete(name = "Dataset")+
+  theme(text = element_text(size = 16),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) + 
+  facet_wrap(~quantile_pop, nrow = nquant, scale="free_x")
+
+```
+
+## combine all datasets, but using DHS-weighted CDR and FB instead
+```{r}
+datasets_keep = c("CDR, wt DHS", "DHS", "TS", "FB, wt DHS")
+meta_all_wt_DHS = data.frame(district = prob_stay_all_w_cov$district, 
+                              est = rep(NA, length(prob_stay_all_w_cov$district)),
+                              ll = rep(NA, length(prob_stay_all_w_cov$district)),
+                              ul = rep(NA, length(prob_stay_all_w_cov$district)),
+                              se = rep(NA, length(prob_stay_all_w_cov$district))
+                             )
+contrib_all_wt_DHS = matrix(NA, nrow = length(prob_stay_all_w_cov$district),
+                                ncol = 1+ length(datasets_keep))
+contrib_all_wt_DHS = as.data.frame(contrib_all_wt_DHS)
+names(contrib_all_wt_DHS) = c("district", datasets_keep)
+
+for (d in 1:length(prob_stay_all_w_cov$district)){
+  m.gen <- metagen(TE = mean,
+                 seTE = sd,
+                 studlab = dataset,
+                 fixed = TRUE,
+                 data = combo_fitted_travel_wcov %>% filter(districts %in% meta_all_wt_DHS$district[d]) %>% 
+                   filter(dataset %in% datasets_keep))
+  temp = base::summary(m.gen)
+  meta_all_wt_DHS[d,'est'] = temp$TE.random
+  meta_all_wt_DHS[d,'ll'] = temp$lower.random
+  meta_all_wt_DHS[d,'ul'] = temp$upper.random
+  meta_all_wt_DHS[d, 'se'] = temp$seTE.random
+  
+  contrib_all_wt_DHS[d,1] = meta_all_wt_DHS$district[d]
+  for (j in 1:length(datasets_keep)){
+  contrib_all_wt_DHS[d,j+1] = temp$w.random[j]/sum(temp$w.random)
+  }
+}
+
+write.csv(meta_all_wt_DHS, "outputs/feb11/meta_all_wt_DHS.csv")
+
+
+# plot relative contributions
+contrib_wt_DHS_long = contrib_all_wt_DHS %>% pivot_longer(cols = -c(district), names_to = "dataset", values_to = "contribution")
+
+# set order based on population size
+contrib_wt_DHS_long = merge(contrib_wt_DHS_long, combo_fitted_travel_wcov %>% select(districts, pop, quantile_pop) %>% group_by(districts) %>% slice(1),
+                            by.x = "district", by.y = "districts", all.x=TRUE)
+contrib_wt_DHS_long$district_fac = factor(contrib_wt_DHS_long$district,
+                                          levels = unique(contrib_wt_DHS_long$district[order(-contrib_wt_DHS_long$pop)]), ordered=TRUE)
+ggplot(contrib_wt_DHS_long, aes(fill = dataset, y = contribution, x = district_fac)) + 
+  geom_bar(position = 'stack', stat = "identity") + theme_bw() + 
+  xlab("District") + 
+  facet_wrap(~quantile_pop, scale="free_x", nrow = 3)+
+    theme(text = element_text(size = 16),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) 
+
+# look at the estimates used and what we pooled together
+fitted_travel_appB = rbind(combo_fitted_travel_wcov %>% filter(is.na(districts)==FALSE) %>% mutate(district = districts) %>%
+                             select(mean, ll, ul, district, dataset) %>% filter(dataset %in% datasets_keep),
+                           meta_all_wt_DHS %>% select(district, est, ll, ul) %>% rename(mean = est) %>% mutate(dataset = "pooled"))
+fitted_travel_appB = merge(fitted_travel_appB, combo_fitted_travel_wcov %>% group_by(districts) %>% select(districts, pop, quantile_pop) %>% slice(1), by.x = "district", by.y = "districts", all.x=TRUE)
+fitted_travel_appB$district = factor(fitted_travel_appB$district,
+                                          levels = unique(fitted_travel_appB$district[order(-fitted_travel_appB$pop)]), ordered=TRUE)
+fitted_travel_appB$dataset = factor(fitted_travel_appB$dataset,
+                                    levels = c("CDR, wt DHS", "DHS", "FB, wt DHS", "TS", "pooled"), ordered = TRUE)
+
+ggplot(fitted_travel_appB %>% arrange(desc(pop)) %>% filter(is.na(pop)==FALSE), aes(color = dataset)) +
+  geom_point(aes(x = district, y = mean, color = dataset), position=position_dodge(width=0.7))+
+  geom_errorbar(aes(x = district, ymin =ll, ymax = ul, color = dataset), position=position_dodge(width=0.7))+
+  theme_minimal() + xlab("District") + ylab("Probability of leaving") +
+  scale_color_discrete(name = "Dataset")+
+  theme(text = element_text(size = 16),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 90, hjust = .5, vjust = .5, face = "plain"),
+        strip.background = element_blank(),
+        strip.text.x = element_blank()) + 
+  facet_wrap(~quantile_pop, nrow = nquant, scale="free_x")
+
+
+```
+
+Compare the two
+```{r}
+meta_combo = rbind(meta_all_OG %>% mutate(approach = "OG"),
+                   meta_all_wt_DHS %>% mutate(approach = "weighted CDR and FB"))
+meta_combo_wide = merge(meta_all_OG, meta_all_wt_DHS, by= "district", all=TRUE)
+meta_combo_wide = meta_combo_wide %>% dplyr::rename(OG = est.x, `Weighted CDR and FB` = est.y)
+
+colors <- c("Raw CDR and Facebook" = pal_npg("nrc")(9)[5], "Weighted CDR and Facebook" = pal_npg("nrc")(9)[6])
+ggplot(meta_combo_wide, aes(x = OG)) + 
+  geom_point(aes(y = OG, color = "Raw CDR and Facebook"), size = 1)+
+  geom_line(aes(y = OG, color = "Raw CDR and Facebook")) + 
+  geom_point(aes(y = `Weighted CDR and FB`, color = "Weighted CDR and Facebook"), size = 1)+
+  theme(text = element_text(size = 20)) + theme_bw() + xlab("") + ylab("")+
+  scale_color_manual(values = colors) + labs(color = "")
+ggsave("figures/pooled_weighted_vs_raw.pdf",  dpi=700, width = 11, height = 9)
+```
+
+# Now, fit diffusion
+
+## CDR
+```{r}
+D <- readRDS('../data/dist_data.rds')               
+N <- readRDS('../data/pop_data.rds')
+M_diag = readRDS('../data/OD_data_diag.rds')
+M_diag = data.matrix(as.data.frame(M_diag))
+
+M2 = as.matrix(M_diag, dimnames = c("origin", "destination"))
+diag(M2) = NA # null out diagonals
+
+D = as.data.frame(D)
+D2 = data.matrix(D)
+D2 = D2 / 1000 # change to kilometers
+
+mobility_matrix = list("M" = M2, "D" = D2, "N" = N)
+
+
+# fit all models and compare
+mod_exp <- mobility(data=mobility_matrix, model='gravity', type='exp', DIC=TRUE, n_chain = num_chains)
+mod_basic <- mobility(data=mobility_matrix, model='gravity', type='basic', DIC=TRUE)
+mod_trans <- mobility(data=mobility_matrix, model='gravity', type='transport', DIC=TRUE)
+mod_power <- mobility(data=mobility_matrix, model='gravity', type='power', DIC=TRUE)
+mod_power_norm <- mobility(data=mobility_matrix, model='gravity', type='power_norm', DIC=TRUE)
+mod_exp_norm<- mobility(data=mobility_matrix, model='gravity', type='exp_norm', DIC=TRUE)
+# mod_exp_marsh<- mobility(data=mobility_matrix, model='gravity', type='Marshall', DIC=TRUE) -- unknown type
+compare(list(mod_exp, mod_basic, mod_trans, mod_power, mod_power_norm, mod_exp_norm)) %>% select(-c(model, hierarchical)) %>%
+  flextable()
+
+check(mod_exp)
+check(mod_basic)
+check(mod_trans)
+check(mod_power)
+check(mod_power_norm)
+check(mod_exp_norm)
+
+
+
+saveRDS(mod_exp, "outputs/feb11/mod_exp.rds")
+summary(mod_exp)
+
+a = melt(M_diag)
+colnames(a) = c("origin", "destination", "value")
+# plot mobility matrix from raw data
+ggplot(data=a) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=value)) +
+  xlab('Destination') + ylab("Origin") +
+  theme_bw() + theme(axis.text.x=element_text(size=6, angle = 90, hjust = .5, vjust = .5),
+                     axis.text.y=element_text(size=6),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='inferno', direction=1, trans="log", label = function(x) sprintf("%.0f", x)) +
+  guides(fill=guide_colorbar(title='Observed number of trips',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+```
+
+## FB
+```{r}
+
+# distance matrix
+D_full <- readRDS("../data/dist_data_full.rds")               
+N_full <- readRDS("../data/pop_data_full.rds")
+
+D_full = data.matrix(as.data.frame(D_full))
+D_full = D_full / 1000
+
+D_fb = D_full[rownames(M_fb), rownames(M_fb)]
+N_fb = N_full[rownames(M_fb)]
+
+M_fb2 = M_fb
+diag(M_fb2) <- NA
+mobility_matrix_fb = list("M" = M_fb2, "D" = D_fb, "N" = N_fb)
+
+mod_exp_FB <- mobility(data=mobility_matrix_fb, model='gravity', type='exp', DIC=TRUE, n_chain = num_chains)
+mod_basic_FB <- mobility(data=mobility_matrix_fb, model='gravity', type='basic', DIC=TRUE, n_chain = num_chains)
+mod_trans_FB <- mobility(data=mobility_matrix_fb, model='gravity', type='transport', DIC=TRUE, n_chain = num_chains)
+mod_power_FB <- mobility(data=mobility_matrix_fb, model='gravity', type='power', DIC=TRUE, n_chain = num_chains)
+mod_power_norm_FB <- mobility(data=mobility_matrix_fb, model='gravity', type='power_norm', DIC=TRUE, n_chain = num_chains)
+mod_exp_norm_FB<- mobility(data=mobility_matrix_fb, model='gravity', type='exp_norm', DIC=TRUE, n_chain = num_chains)
+# mod_exp_marsh<- mobility(data=mobility_matrix, model='gravity', type='Marshall', DIC=TRUE) -- unknown type
+compare(list(mod_exp_FB, mod_basic_FB, mod_trans_FB, mod_power_FB, mod_power_norm_FB, mod_exp_norm_FB)) %>% select(-c(model, hierarchical)) %>%
+  flextable()
+
+
+
+check(mod_exp_FB)
+check(mod_basic_FB)
+check(mod_trans_FB)
+check(mod_power_FB)
+check(mod_power_norm_FB)
+check(mod_exp_norm_FB)
+
+saveRDS(mod_exp_FB, "outputs/feb11/mod_exp_FB.rds")
+summary(mod_exp_FB)
+
+# plot mobility matrix from raw data
+a = melt(mobility_matrix_fb$M)
+ggplot(data=melt(mobility_matrix_fb$M)) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=value)) +
+  xlab('Destination') + ylab("Origin") +
+  theme_bw() + theme(axis.text.x=element_text(size=10, angle = 90, hjust = .5, vjust = .5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='inferno', direction=1) +
+  guides(fill=guide_colorbar(title='Observed number of trips',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+```
+
+## TS
+```{r}
+mob_mat_TS = readRDS("data/mobility_mat_travelsurvey.RDS")
+M2 = as.matrix(mob_mat_TS$M, dimnames = c("origin", "destination"))
+
+D = as.data.frame(mob_mat_TS$D)
+D2 = data.matrix(D)
+D2 = D2 / 1000 # change to kilometers
+
+mob_mat_TS = list("M" = M2, "D" = D2, "N" = mob_mat_TS$N)
+
+mod_exp_TS <- mobility(data=mob_mat_TS, model='gravity', type='exp', DIC=TRUE, n_chain = num_chains)
+mod_basic_TS <- mobility(data=mob_mat_TS, model='gravity', type='basic', DIC=TRUE, n_chain = num_chains)
+mod_trans_TS <- mobility(data=mob_mat_TS, model='gravity', type='transport', DIC=TRUE, n_chain = num_chains)
+mod_power_TS <- mobility(data=mob_mat_TS, model='gravity', type='power', DIC=TRUE, n_chain = num_chains)
+mod_power_norm_TS <- mobility(data=mob_mat_TS, model='gravity', type='power_norm', DIC=TRUE, n_chain = num_chains)
+mod_exp_norm_TS<- mobility(data=mob_mat_TS, model='gravity', type='exp_norm', DIC=TRUE, n_chain = num_chains)
+# mod_exp_marsh<- mobility(data=mobility_matrix, model='gravity', type='Marshall', DIC=TRUE) -- unknown type
+compare(list(mod_exp_TS, mod_basic_TS, mod_trans_TS, mod_power_TS, mod_power_norm_TS, mod_exp_norm_TS)) %>% select(-c(model, hierarchical)) %>%
+  flextable()
+
+
+
+check(mod_exp_TS)
+check(mod_basic_TS)
+check(mod_trans_TS)
+check(mod_power_norm_TS)
+check(mod_exp_norm_TS)
+
+saveRDS(mod_exp_TS, "outputs/feb11/mod_exp_TS.rds")
+summary(mod_exp_TS)
+
+# plot mobility matrix from raw data
+ggplot(data=melt(mob_mat_TS$M)) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=value)) +
+  xlab('Destination') + ylab("Origin") +
+  theme_bw() + theme(axis.text.x=element_text(size=10, angle = 90, hjust = .5, vjust = .5),
+                     axis.text.y=element_text(size=10),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='inferno', direction=1) +
+  guides(fill=guide_colorbar(title='Observed number of trips',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+
+```
+
+## Compare coefficients from models
+```{r}
+coefs_raw = rbind(mobility::summary(mod_exp) %>% mutate(dataset= "CDR", coef = rownames(mobility::summary(mod_exp))),
+                  mobility::summary(mod_exp_TS) %>% mutate(dataset="TS",  coef = rownames(mobility::summary(mod_exp_TS))),
+                  mobility::summary(mod_exp_FB) %>% mutate(dataset="FB",  coef = rownames(mobility::summary(mod_exp_FB))))
+
+ggplot(coefs_raw %>% filter(coef %in% c("omega_1", "omega_2", "delta"))) +
+  geom_point(aes(x = dataset, y = mean))+
+  geom_errorbar(aes(x = dataset, ymin = `Q2.5`, ymax = `Q97.5`)) + 
+  theme_bw() + 
+  facet_wrap(~coef, scales = "free_y")
+```
+
+
+## Restrict mobile phone data and Facebook to only having Choma and Ndola as origins
+
+First for CDR
+```{r}
+D <- readRDS('../data/dist_data.rds')               
+N <- readRDS('../data/pop_data.rds')
+M_diag = readRDS('../data/OD_data_diag.rds')
+M_diag = data.matrix(as.data.frame(M_diag))
+# Make NAs for everything that's not choma and ndola
+rows_to_exclude = setdiff(rownames(M_diag), c("choma", "ndola"))
+M_diag_cn = M_diag
+M_diag_cn[rows_to_exclude,]<- NA
+
+M_diag_cn = as.matrix(M_diag_cn, dimnames = c("origin", "destination"))
+diag(M_diag_cn) = NA # null out diagonals
+
+D = as.data.frame(D)
+D2 = data.matrix(D)
+D2 = D2 / 1000 # change to kilometers
+
+mobility_matrix_CDR_cn = list("M" = M_diag_cn, "D" = D2, "N" = N)
+
+## fit model
+mod_exp_CDR_cn <- mobility(data=mobility_matrix_CDR_cn, model='gravity', type='exp', DIC=TRUE, n_chain = num_chains)
+check(mod_exp_CDR_cn)
+```
+
+
+Restrict FB
+```{r}
+
+M_fb = read.csv("outputs/feb11/M_fb.csv")
+M_fb2 = M_fb
+rownames(M_fb2) = M_fb2$X
+M_fb2 = data.frame(M_fb2) %>% dplyr::select(-c(X))
+diag(M_fb2) <- NA
+M_fb2 = data.matrix(M_fb2)
+
+# distance matrix
+D_full <- readRDS("../data/dist_data_full.rds")               
+N_full <- readRDS("../data/pop_data_full.rds")
+
+D_full = data.matrix(as.data.frame(D_full))
+D_full = D_full / 1000
+
+D_fb = D_full[rownames(M_fb2), rownames(M_fb2)]
+N_fb = N_full[rownames(M_fb2)]
+
+M_diag_fb_cn = M_fb2
+rows_to_exclude_fb = setdiff(rownames(M_diag_fb_cn), c("choma", "ndola"))
+
+M_diag_fb_cn[rows_to_exclude_fb,]<- NA
+
+
+mobility_matrix_fb_cn = list("M" = M_diag_fb_cn, "D" = D_fb, "N" = N_fb)
+
+mod_exp_FB_cn <- mobility(data=mobility_matrix_fb_cn, model='gravity', type='exp', DIC=TRUE, n_chain = num_chains)
+check(mod_exp_FB_cn)
+
+```
+
+Combine the results
+```{r}
+coefs_raw_cn = rbind(mobility::summary(mod_exp) %>% mutate(dataset= "CDR", coef = rownames(mobility::summary(mod_exp))),
+                     mobility::summary(mod_exp_CDR_cn) %>% mutate(dataset= "CDR (Choma + Ndola)", coef = rownames(mobility::summary(mod_exp))),
+                  mobility::summary(mod_exp_TS) %>% mutate(dataset="TS",  coef = rownames(mobility::summary(mod_exp_TS))),
+                  mobility::summary(mod_exp_FB) %>% mutate(dataset="FB",  coef = rownames(mobility::summary(mod_exp_FB))),
+                  mobility::summary(mod_exp_FB_cn) %>% mutate(dataset="FB (Choma + Ndola)",  coef = rownames(mobility::summary(mod_exp_FB))))
+
+ggplot(coefs_raw_cn %>% filter(coef %in% c("omega_1", "omega_2", "delta"))) +
+  geom_point(aes(x = dataset, y = mean))+
+  geom_errorbar(aes(x = dataset, ymin = `Q2.5`, ymax = `Q97.5`)) + 
+  theme_bw() + 
+  facet_wrap(~coef, scales = "free_y", nrow = 3)
+
+
+```
+
+Fit FB OD-matrix restricted to Choma and Ndola --- keep the diagonals
+```{r}
+
+M_fb2_kp = readRDS("outputs/feb11/M_fb_all.RDS")
+M_fb2_kp = data.matrix(M_fb2_kp)
+
+M_fb_cn = M_fb2_kp
+rows_to_exclude_fb = setdiff(rownames(M_fb_cn), c("choma", "ndola"))
+
+M_fb_cn[rows_to_exclude_fb,]<- NA
+
+M_fb_cn = M_fb_cn[c("choma", "ndola"),]
+
+a = reshape2::melt(M_fb_cn)
+colnames(a) = c("origin", "destination", "value")
+
+# make names only for those that have any trips
+a = a %>% mutate(destination_nonzero = ifelse(is.na(value), "", as.character(destination)))
+
+
+# plot mobility matrix from raw data
+ggplot(data=a) +
+  geom_tile(aes(x=factor(destination),
+                y=factor(origin),
+                fill=value)) +
+  xlab('Destination') + ylab("Origin") +
+  theme_bw() + theme(axis.text.x=element_text(size=6, angle = 90, hjust = .5, vjust = .5),
+                     axis.text.y=element_text(size=6),
+                     axis.title.x=element_text(size=12, margin = margin(t = 15)),
+                     axis.title.y=element_text(size=12, margin = margin(r = 15)),
+                     legend.position='bottom') +
+  viridis::scale_fill_viridis(option='inferno', direction=1, trans="log", label = function(x) sprintf("%.0f", x)) +
+  guides(fill=guide_colorbar(title='Observed number of trips',
+                             title.position='top',
+                             label.theme=element_text(size=9),
+                             barwidth=20,
+                             barheight=0.5,
+                             frame.colour='black',
+                             ticks=TRUE))
+
+
+```
+
+
+# Now, fit a model with a prior
+```{r}
+source("fit_gravity_jags.R")
+
+# use CDR as a prior to TS
+mod_exp_TS_priorCDR <- fit_gravity_prior(M = mob_mat_TS$M,
+                                         D = mob_mat_TS$D,
+                                         omega_1_mean_prior = mobility::summary(mod_exp)["omega_1",]$mean,
+                                         omega_1_sd_prior = mobility::summary(mod_exp)["omega_1",]$sd,
+                                         omega_2_mean_prior = mobility::summary(mod_exp)["omega_2",]$mean,
+                                         omega_2_sd_prior = mobility::summary(mod_exp)["omega_2",]$sd,                              
+                                         delta_mean_prior = mobility::summary(mod_exp)["delta",]$mean,
+                                         delta_sd_prior = mobility::summary(mod_exp)["delta",]$sd,
+                                         N_orig = mob_mat_TS$N,
+                                         N_dest = mob_mat_TS$N,
+                                         type = "exp",
+                                         n_chain = 4,
+                                         DIC = TRUE)
+ mobility::summary(mod_exp_TS_priorCDR)                                        
+saveRDS(mod_exp_TS_priorCDR, "outputs/feb11/mod_exp_TS_priorCDR.rds")
+                                         
+
+# use FB as a prior to TS
+mod_exp_TS_priorFB <- fit_gravity_prior(M = mob_mat_TS$M,
+                                         D = mob_mat_TS$D,
+                                         omega_1_mean_prior = mobility::summary(mod_exp_FB)["omega_1",]$mean,
+                                         omega_1_sd_prior = mobility::summary(mod_exp_FB)["omega_1",]$sd,
+                                         omega_2_mean_prior = mobility::summary(mod_exp_FB)["omega_2",]$mean,
+                                         omega_2_sd_prior = mobility::summary(mod_exp_FB)["omega_2",]$sd,                            
+                                         delta_mean_prior = mobility::summary(mod_exp_FB)["delta",]$mean,
+                                         delta_sd_prior = mobility::summary(mod_exp_FB)["delta",]$sd,
+                                         N_orig = mob_mat_TS$N,
+                                         N_dest = mob_mat_TS$N,
+                                         type = "exp",
+                                         n_chain = 4,
+                                         DIC = TRUE)
+ mobility::summary(mod_exp_TS_priorFB)        
+ saveRDS(mod_exp_TS_priorFB, "outputs/feb11/mod_exp_TS_priorFB.rds")
+
+ 
+ # use FB as a prior to CDR
+mod_exp_CDR_priorFB <- fit_gravity_prior(M = mobility_matrix$M,
+                                         D = mobility_matrix$D,
+                                         omega_1_mean_prior = mobility::summary(mod_exp_FB)["omega_1",]$mean,
+                                         omega_1_sd_prior = mobility::summary(mod_exp_FB)["omega_1",]$sd,
+                                         omega_2_mean_prior = mobility::summary(mod_exp_FB)["omega_2",]$mean,
+                                         omega_2_sd_prior = mobility::summary(mod_exp_FB)["omega_2",]$sd,                            
+                                         delta_mean_prior = mobility::summary(mod_exp_FB)["delta",]$mean,
+                                         delta_sd_prior = mobility::summary(mod_exp_FB)["delta",]$sd,
+                                         N_orig = mobility_matrix$N,
+                                         N_dest = mobility_matrix$N,
+                                         type = "exp",
+                                         n_chain = 4,
+                                         DIC = TRUE)
+ mobility::summary(mod_exp_CDR_priorFB)     
+ saveRDS(mod_exp_CDR_priorFB, "outputs/feb11/mod_exp_CDR_priorFB.rds")
+ 
+ 
+  # use TS as a prior to CDR
+mod_exp_CDR_priorTS <- fit_gravity_prior(M = mobility_matrix$M,
+                                         D = mobility_matrix$D,
+                                         omega_1_mean_prior = mobility::summary(mod_exp_TS)["omega_1",]$mean,
+                                         omega_1_sd_prior = mobility::summary(mod_exp_TS)["omega_1",]$sd,
+                                         omega_2_mean_prior = mobility::summary(mod_exp_TS)["omega_2",]$mean,
+                                         omega_2_sd_prior = mobility::summary(mod_exp_TS)["omega_2",]$sd,                            
+                                         delta_mean_prior = mobility::summary(mod_exp_TS)["delta",]$mean,
+                                         delta_sd_prior = mobility::summary(mod_exp_TS)["delta",]$sd,
+                                         N_orig = mobility_matrix$N,
+                                         N_dest = mobility_matrix$N,
+                                         type = "exp",
+                                         n_chain = 4,
+                                         DIC = TRUE)
+ mobility::summary(mod_exp_CDR_priorTS)   
+  saveRDS(mod_exp_CDR_priorTS, "outputs/feb11/mod_exp_CDR_priorTS.rds")
+
+   # use TS as a prior to FB
+mod_exp_FB_priorTS <- fit_gravity_prior(M = mobility_matrix_fb$M,
+                                         D = mobility_matrix_fb$D,
+                                         omega_1_mean_prior = mobility::summary(mod_exp_TS)["omega_1",]$mean,
+                                         omega_1_sd_prior = mobility::summary(mod_exp_TS)["omega_1",]$sd,
+                                         omega_2_mean_prior = mobility::summary(mod_exp_TS)["omega_2",]$mean,
+                                         omega_2_sd_prior = mobility::summary(mod_exp_TS)["omega_2",]$sd,                            
+                                         delta_mean_prior = mobility::summary(mod_exp_TS)["delta",]$mean,
+                                         delta_sd_prior = mobility::summary(mod_exp_TS)["delta",]$sd,
+                                         N_orig = mobility_matrix_fb$N,
+                                         N_dest = mobility_matrix_fb$N,
+                                         type = "exp",
+                                         n_chain = 4,
+                                         DIC = TRUE)
+ base::summary(mod_exp_FB_priorTS) 
+  saveRDS(mod_exp_FB_priorTS, "outputs/feb11/mod_exp_FB_priorTS.rds")
+ 
+    # use CDR as a prior to FB
+mod_exp_FB_priorCDR <- fit_gravity_prior(M = mobility_matrix_fb$M,
+                                         D = mobility_matrix_fb$D,
+                                         omega_1_mean_prior = mobility::summary(mod_exp)["omega_1",]$mean,
+                                         omega_1_sd_prior = mobility::summary(mod_exp)["omega_1",]$sd,
+                                         omega_2_mean_prior = mobility::summary(mod_exp)["omega_2",]$mean,
+                                         omega_2_sd_prior = mobility::summary(mod_exp)["omega_2",]$sd,                            
+                                         delta_mean_prior = mobility::summary(mod_exp)["delta",]$mean,
+                                         delta_sd_prior = mobility::summary(mod_exp)["delta",]$sd,
+                                         N_orig = mobility_matrix_fb$N,
+                                         N_dest = mobility_matrix_fb$N,
+                                         type = "exp",
+                                         n_chain = 4,
+                                         DIC = TRUE)
+ mobility::summary(mod_exp_FB_priorCDR) 
+   saveRDS(mod_exp_FB_priorCDR, "outputs/feb11/mod_exp_FB_priorCDR.rds")
+
+ 
+ coefs_raw_prior = rbind(mobility::summary(mod_exp) %>% mutate(dataset= "CDR", coef = rownames(mobility::summary(mod_exp))),
+                  mobility::summary(mod_exp_TS) %>% mutate(dataset="TS",  coef = rownames(mobility::summary(mod_exp_TS))),
+                  mobility::summary(mod_exp_FB) %>% mutate(dataset="FB",  coef = rownames(mobility::summary(mod_exp_FB))),
+                   mobility::summary(mod_exp_CDR_priorFB) %>% mutate(dataset="CDR, FB prior",  coef = rownames(mobility::summary(mod_exp_CDR_priorFB))),
+                   mobility::summary(mod_exp_CDR_priorTS) %>% mutate(dataset="CDR, TS prior",  coef = rownames(mobility::summary(mod_exp_CDR_priorTS))),                 
+                    mobility::summary(mod_exp_TS_priorCDR) %>% mutate(dataset="TS, CDR prior",  coef = rownames(mobility::summary(mod_exp_TS_priorCDR))),                   
+                    mobility::summary(mod_exp_TS_priorFB) %>% mutate(dataset="TS, FB prior",  coef = rownames(mobility::summary(mod_exp_TS_priorFB))),                  
+                     mobility::summary(mod_exp_FB_priorTS) %>% mutate(dataset="FB, TS prior",  coef = rownames(mobility::summary(mod_exp_FB_priorTS))),     
+                     mobility::summary(mod_exp_FB_priorCDR) %>% mutate(dataset="FB, CDR prior",  coef = rownames(mobility::summary(mod_exp_FB_priorCDR)))                   
+                  )
+
+ # create variable that indicates prior
+ coefs_raw_prior = coefs_raw_prior %>% mutate(prior = ifelse(dataset %in% c("CDR", "TS, CDR prior", "FB, CDR prior"), "CDR",
+                                                             ifelse(dataset %in% c("TS", "CDR, TS prior", "FB, TS prior"), "TS", "FB")))
+ coefs_raw_prior$dataset = factor(coefs_raw_prior$dataset, 
+                                  levels = unique(coefs_raw_prior$dataset), ordered = TRUE)
+ggplot(coefs_raw_prior %>% filter(coef %in% c("omega_1", "omega_2", "delta")), aes(color = prior)) +
+  geom_point(aes(x = dataset, y = mean))+
+  geom_errorbar(aes(x = dataset, ymin = `Q2.5`, ymax = `Q97.5`)) + 
+  theme_bw() + 
+  facet_wrap(~coef, scales = "free_y", nrow = 3)
+
+
+
+# calculate percent difference from the mean
+diff_priors = data.frame(CDR_priorFB = ((mobility::summary(mod_exp_CDR_priorFB)$mean) - mobility::summary(mod_exp)$mean)/mobility::summary(mod_exp)$mean, 
+                         CDR_priorTS = ((mobility::summary(mod_exp_CDR_priorTS)$mean) - mobility::summary(mod_exp)$mean)/mobility::summary(mod_exp)$mean,
+                         TS_priorFB = ((mobility::summary(mod_exp_TS_priorFB)$mean) - mobility::summary(mod_exp_TS)$mean)/mobility::summary(mod_exp_TS)$mean,
+                         TS_priorCDR = ((mobility::summary(mod_exp_TS_priorCDR)$mean) - mobility::summary(mod_exp_TS)$mean)/mobility::summary(mod_exp_TS)$mean,                         
+                         FB_priorCDR = ((mobility::summary(mod_exp_FB_priorCDR)$mean) - mobility::summary(mod_exp_FB)$mean)/mobility::summary(mod_exp_FB)$mean,                          
+                         FB_priorTS = ((mobility::summary(mod_exp_FB_priorTS)$mean) - mobility::summary(mod_exp_FB)$mean)/mobility::summary(mod_exp_FB)$mean,
+coefficient = rownames(mobility::summary(mod_exp_TS_priorCDR)))
+diff_priors = diff_priors %>% filter(coefficient %in% c("delta", "omega_1", "omega_2")) %>%
+  pivot_longer(cols = -c(coefficient), names_to = "dataset")
+
+diff_priors$percent = diff_priors$value * 100
+ggplot(diff_priors) +
+  geom_point(aes(x = dataset, y = percent))+
+  theme_bw() + 
+  facet_wrap(~coefficient, scales = "free_y", nrow = 3)+
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray")
+```
+
+```{r}
+## last possibility - pool using meta analysis
+datasets_keep = c("CDR", "TS", "FB")
+meta_all_diff = data.frame(coef = c("delta", "omega_1", "omega_2"), 
+                              est = rep(NA, 3),
+                              ll = rep(NA, 3),
+                              ul = rep(NA, 3),
+                              se = rep(NA, 3)
+                             )
+contrib_all_diff= matrix(NA, nrow = 3,
+                                ncol = 1+ 3)
+contrib_all_diff = as.data.frame(contrib_all_diff)
+names(contrib_all_diff) = c("coefficient", datasets_keep)
+
+for (d in 1:length(meta_all_diff$coef)){
+  m.gen <- metagen(TE = mean,
+                 seTE = sd,
+                 studlab = dataset,
+                 fixed = TRUE,
+                 data = coefs_raw_prior %>% filter(coef %in% meta_all_diff$coef[d]) %>% 
+                   filter(dataset %in% datasets_keep))
+  temp = base::summary(m.gen)
+  meta_all_diff[d,'est'] = temp$TE.random
+  meta_all_diff[d,'ll'] = temp$lower.random
+  meta_all_diff[d,'ul'] = temp$upper.random
+  meta_all_diff[d, 'se'] = temp$seTE.random
+  
+  contrib_all_diff[d,1] = meta_all_diff$coef[d]
+  for (j in 1:length(datasets_keep)){
+  contrib_all_diff[d,j+1] = temp$w.random[j]/sum(temp$w.random)
+  }
+}
+   saveRDS(meta_all_diff, "outputs/feb11/meta_all_diff.rds")
+
+
+# plot
+coefs_to_com = coefs_raw_prior %>% select(coef, mean, `Q2.5`, `Q97.5`, sd, dataset)
+meta_to_com = meta_all_diff %>% mutate(dataset = "Pooled")
+colnames(meta_to_com) = c("coef", "mean", "Q2.5", "Q97.5", "sd", "dataset")
+meta_to_com = rbind(coefs_to_com, meta_to_com)
+
+ meta_to_com$dataset = factor(meta_to_com$dataset, 
+                                  levels = unique(meta_to_com$dataset), ordered = TRUE)
+
+ggplot(meta_to_com %>% filter(coef %in% c("delta", "omega_1", "omega_2"))) +
+  geom_point(aes(x = dataset, y = mean))+
+  geom_errorbar(aes(x = dataset, ymin = `Q2.5`, ymax = `Q97.5`)) + 
+  theme_bw() + 
+  facet_wrap(~coef, scales = "free_y", nrow = 3)
+
+```
+
+# Look at how much variance on TS would have to shrink in order for it to matter in diffusion
+## First, TS as a prior for CDR 
+```{r}
+# try a sequence from 1 tp 1000, going by 50??
+scale_seq = c(1, seq(50, 1000, by=50))
+
+mod_ex_CDR_priorTS_scale = list()
+for (i in 1:length(scale_seq)){
+  scale = scale_seq[i]
+  mod_ex_CDR_priorTS_scale[[i]] <- fit_gravity_prior(M = mobility_matrix$M,
+                                         D = mobility_matrix$D,
+                                         omega_1_mean_prior = mobility::summary(mod_exp_TS)["omega_1",]$mean,
+                                         omega_1_sd_prior = mobility::summary(mod_exp_TS)["omega_1",]$sd / scale,
+                                         omega_2_mean_prior = mobility::summary(mod_exp_TS)["omega_2",]$mean,
+                                         omega_2_sd_prior = mobility::summary(mod_exp_TS)["omega_2",]$sd / scale,                            
+                                         delta_mean_prior = mobility::summary(mod_exp_TS)["delta",]$mean,
+                                         delta_sd_prior = mobility::summary(mod_exp_TS)["delta",]$sd / scale,
+                                         N_orig = mobility_matrix$N,
+                                         N_dest = mobility_matrix$N,
+                                         type = "exp",
+                                         n_chain = 4,
+                                         DIC = TRUE)
+}
+  
+# pull into one dataframe
+CDR_priorTS_scale = data.frame(matrix(NA, nrow = 0, ncol = ncol(mobility::summary(mod_ex_CDR_priorTS_scale[[1]]))+1))
+for (k in 1:length(mod_ex_CDR_priorTS_scale)){
+  CDR_priorTS_scale = rbind(CDR_priorTS_scale,
+                           mobility::summary(mod_ex_CDR_priorTS_scale[[k]]) %>% mutate(sd_scale=scale_seq[k]))
+}
+
+CDR_priorTS_scale$coef = rownames(CDR_priorTS_scale)
+CDR_priorTS_scale = CDR_priorTS_scale |> mutate(
+  coef = case_when(grepl("omega_1", coef) ~ "omega_1",
+                   grepl("omega_2", coef) ~ "omega_2",
+                   grepl("delta", coef) ~ "delta",
+                   grepl("theta", coef) ~ "theta",
+                   TRUE ~ NA)
+)
+saveRDS(CDR_priorTS_scale, "outputs/sensitivity/CDR_priorTS_scale.RDS")
+
+ggplot(CDR_priorTS_scale %>% filter(coef %in% c("omega_1", "omega_2", "delta")), aes(color = coef)) +
+  geom_point(aes(x = sd_scale, y = mean))+
+  geom_errorbar(aes(x = sd_scale, ymin = `Q2.5`, ymax = `Q97.5`)) + 
+  theme_bw() + 
+  facet_wrap(~coef, scales = "free_y", nrow = 3) + 
+  theme(text = element_text(size = 20)) + 
+  xlab("SD scaling factor") + 
+  scale_color_aaas()+
+  theme(legend.position = "none") + 
+  ggtitle("Coefficient values, using Travel survey as a prior for CDR")
+
+```
+
+## Now for TS as prior and FB as dataset
+```{r}
+# try a sequence from 1 tp 1000, going by 50??
+scale_seq = c(1, seq(50, 1000, by=50))
+
+mod_ex_FB_priorTS_scale = list()
+for (i in 1:length(scale_seq)){
+  scale = scale_seq[i]
+  mod_ex_FB_priorTS_scale[[i]] <- fit_gravity_prior(M = mobility_matrix_fb$M,
+                                         D = mobility_matrix_fb$D,
+                                         omega_1_mean_prior = mobility::summary(mod_exp_TS)["omega_1",]$mean,
+                                         omega_1_sd_prior = mobility::summary(mod_exp_TS)["omega_1",]$sd / scale,
+                                         omega_2_mean_prior = mobility::summary(mod_exp_TS)["omega_2",]$mean,
+                                         omega_2_sd_prior = mobility::summary(mod_exp_TS)["omega_2",]$sd / scale,                            
+                                         delta_mean_prior = mobility::summary(mod_exp_TS)["delta",]$mean,
+                                         delta_sd_prior = mobility::summary(mod_exp_TS)["delta",]$sd / scale,
+                                         N_orig = mobility_matrix_fb$N,
+                                         N_dest = mobility_matrix_fb$N,
+                                         type = "exp",
+                                         n_chain = 4,
+                                         DIC = TRUE)
+  print(i)
+}
+  
+
+
+# pull into one dataframe
+FB_priorTS_scale = data.frame(matrix(NA, nrow = 0, ncol = ncol(mobility::summary(mod_ex_FB_priorTS_scale[[1]]))+1))
+for (k in 1:length(mod_ex_FB_priorTS_scale)){
+  FB_priorTS_scale = rbind(FB_priorTS_scale,
+                           mobility::summary(mod_ex_FB_priorTS_scale[[k]]) %>% mutate(sd_scale=scale_seq[k]))
+}
+
+FB_priorTS_scale$coef = rownames(FB_priorTS_scale)
+FB_priorTS_scale = FB_priorTS_scale |> mutate(
+  coef = case_when(grepl("omega_1", coef) ~ "omega_1",
+                   grepl("omega_2", coef) ~ "omega_2",
+                   grepl("delta", coef) ~ "delta",
+                   grepl("theta", coef) ~ "theta",
+                   TRUE ~ NA)
+)
+saveRDS(FB_priorTS_scale, "outputs/sensitivity/FB_priorTS_scale.RDS")
+
+ggplot(FB_priorTS_scale %>% filter(coef %in% c("omega_1", "omega_2", "delta")), aes(color = coef)) +
+  geom_point(aes(x = sd_scale, y = mean))+
+  geom_errorbar(aes(x = sd_scale, ymin = `Q2.5`, ymax = `Q97.5`)) + 
+  theme_bw() + 
+  facet_wrap(~coef, scales = "free_y", nrow = 3) + 
+  theme(text = element_text(size = 20)) + 
+  xlab("SD scaling factor") + 
+  scale_color_aaas()+
+  theme(legend.position = "none") + 
+  ggtitle("Coefficient values, using Travel survey as a prior for FB")
+
+
+```
+
+
+# Now, create mobility matrices for simulations using different combinations of departure and diffusion models
+
+## CDR dep, CDR diff
+```{r}
+prob_stay_all_w_cov = read.csv("outputs/feb11/prob_stay_all_w_cov.csv")
+
+num_sims = 100
+D_full <- readRDS("../data/dist_data_full.rds")               
+N_full <- readRDS("../data/pop_data_full.rds")
+
+D_full = data.matrix(as.data.frame(D_full)) / 1000
+
+all_data_full = list("D" = D_full, "N" = N_full)
+
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+pred_departure <- predict.prob_travel(object = prob_travel_cdr, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_CDR_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_CDR_full[[i]] <- diff
+}
+saveRDS(M_CDR_full, file = "outputs/feb11/M_CDR_full.rds")
+
+```
+
+## FB dep, FB diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp_FB, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+pred_departure <- predict.prob_travel(object = prob_travel_fb, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_FB_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_FB_full[[i]] <- diff
+}
+saveRDS(M_FB_full, file = "outputs/feb11/M_FB_full.rds")
+
+```
+
+## TS dep, TS diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp_TS, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+pred_departure <- predict.prob_travel(object = prob_travel_ts, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_TS_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_TS_full[[i]] <- diff
+}
+saveRDS(M_TS_full, file = "outputs/feb11/M_TS_full.rds")
+
+```
+
+## DHS dep, TS diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp_TS, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+pred_departure <- predict.prob_travel(object = prob_travel_dhs, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_DHS_TS_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_DHS_TS_full[[i]] <- diff
+}
+saveRDS(M_DHS_TS_full, file = "outputs/feb11/M_DHS_TS_full.rds")
+
+```
+
+
+## DHS dep, FB diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp_FB, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+pred_departure <- predict.prob_travel(object = prob_travel_dhs, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_DHS_FB_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_DHS_FB_full[[i]] <- diff
+}
+saveRDS(M_DHS_FB_full, file = "outputs/feb11/M_DHS_FB_full.rds")
+
+```
+
+## CDR with DHS dep, CDR diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+pred_departure <- predict.prob_travel(object = prob_travel_cdr_dhs, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_CDRwDHS_CDR_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_CDRwDHS_CDR_full[[i]] <- diff
+}
+saveRDS(M_CDRwDHS_CDR_full, file = "outputs/feb11/M_CDRwDHS_CDR_full.rds")
+
+```
+
+## FB with DHS dep, FB diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp_FB, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+pred_departure <- predict.prob_travel(object = prob_travel_fb_dhs, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_FBwDHS_FB_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_FBwDHS_FB_full[[i]] <- diff
+}
+saveRDS(M_FBwDHS_FB_full, file = "outputs/feb11/M_FBwDHS_FB_full.rds")
+
+```
+
+## DHS dep, CDR diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+pred_departure <- predict.prob_travel(object = prob_travel_dhs, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_DHS_CDR_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_DHS_CDR_full[[i]] <- diff
+}
+saveRDS(M_DHS_CDR_full, file = "outputs/feb11/M_DHS_CDR_full.rds")
+
+```
+
+## Pooled raw dep, CDR diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp, newdata = all_data_full, nsim = 100, seed = 123)
+
+# fit a model to mixture
+temp = merge(prob_stay_all_w_cov, meta_all_OG %>% select(district, est), by = "district", all.x=TRUE)
+
+total_pool = round(temp$pop_2020sum) # total number of people (weighted)
+names(total_pool) = temp$district
+
+travel_pool = round(temp$est*temp$pop_2020sum) # get number of people that traveled
+names(travel_pool) = temp$district
+
+# feed into model
+prob_travel_pool = fit_prob_travel(travel = travel_pool, total = total_pool,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_pool)
+
+
+source("jags_models.R")
+
+pred_departure <- predict.prob_travel(object = prob_travel_pool, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_pool_CDR_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_pool_CDR_full[[i]] <- diff
+}
+saveRDS(M_pool_CDR_full, file = "outputs/feb11/M_pool_CDR_full.rds")
+
+```
+
+## Pooled weighted dep, CDR
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp, newdata = all_data_full, nsim = 100, seed = 123)
+
+# fit a model to mixture
+temp = merge(prob_stay_all_w_cov, meta_all_wt_DHS %>% select(district, est), by = "district", all.x=TRUE)
+
+total_pool_wt = round(temp$pop_2020sum) # total number of people (weighted)
+names(total_pool_wt) = temp$district
+
+travel_pool_wt = round(temp$est*temp$pop_2020sum) # get number of people that traveled
+names(travel_pool_wt) = temp$district
+
+# feed into model
+prob_travel_pool_wt = fit_prob_travel(travel = travel_pool_wt, total = total_pool_wt,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_pool_wt)
+
+
+source("jags_models.R")
+
+pred_departure <- predict.prob_travel(object = prob_travel_pool_wt, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_pool_wt_CDR_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_pool_wt_CDR_full[[i]] <- diff
+}
+saveRDS(M_pool_wt_CDR_full, file = "outputs/feb11/M_pool_wt_CDR_full.rds")
+
+```
+
+
+## Pooled raw dep, FB diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+mod_exp_FB = readRDS("outputs/feb11/mod_exp_FB.rds")
+meta_all_OG = read.csv("outputs/feb11/meta_all_OG.csv")
+pred <- predict(mod_exp_FB, newdata = all_data_full, nsim = 100, seed = 123)
+
+# fit a model to mixture
+temp = merge(prob_stay_all_w_cov, meta_all_OG %>% dplyr::select(district, est), by = "district", all.x=TRUE)
+
+total_pool = round(temp$pop_2020sum) # total number of people (weighted)
+names(total_pool) = temp$district
+
+travel_pool = round(temp$est*temp$pop_2020sum) # get number of people that traveled
+names(travel_pool) = temp$district
+
+# feed into model
+prob_travel_pool = fit_prob_travel(travel = travel_pool, total = total_pool,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_pool)
+
+
+source("jags_models.R")
+
+pred_departure <- predict.prob_travel(object = prob_travel_pool, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_pool_FB_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_pool_FB_full[[i]] <- diff
+}
+saveRDS(M_pool_FB_full, file = "outputs/feb11/M_pool_FB_full.rds")
+
+```
+
+
+
+
+## Pooled raw dep, TS diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+mod_exp_TS = readRDS("outputs/feb11/mod_exp_TS.rds")
+meta_all_OG = read.csv("outputs/feb11/meta_all_OG.csv")
+pred <- predict(mod_exp_TS, newdata = all_data_full, nsim = 100, seed = 123)
+
+# fit a model to mixture
+temp = merge(prob_stay_all_w_cov, meta_all_OG %>% dplyr::select(district, est), by = "district", all.x=TRUE)
+
+total_pool = round(temp$pop_2020sum) # total number of people (weighted)
+names(total_pool) = temp$district
+
+travel_pool = round(temp$est*temp$pop_2020sum) # get number of people that traveled
+names(travel_pool) = temp$district
+
+# feed into model
+prob_travel_pool = fit_prob_travel(travel = travel_pool, total = total_pool,
+                                  n_chain = num_chains, n_burn = 1000, n_samp = 1000,
+                                  DIC=TRUE, parallel = TRUE)
+summary(prob_travel_pool)
+
+
+source("jags_models.R")
+
+pred_departure <- predict.prob_travel(object = prob_travel_pool, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_pool_TS_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_pool_TS_full[[i]] <- diff
+}
+saveRDS(M_pool_TS_full, file = "outputs/feb11/M_pool_TS_full.rds")
+
+```
+
+
+
+
+## FB dep, FB with TS prior diff
+```{r}
+# Predict the expected mean number of trips using fitted mobility model parameters
+# use stochastic simulation
+pred <- predict(mod_exp_FB_priorTS, newdata = all_data_full, nsim = 100, seed = 123)
+
+source("jags_models.R")
+
+pred_departure <- predict.prob_travel(object = prob_travel_fb, nsim = 100, seed = 123 )
+# reorder those in same order as pred
+pred_departure = pred_departure[rownames(pred[,,1]),]
+
+## combine these
+M_FBwTSpr_FB_full = list()
+for (i in 1:num_sims){
+  dep = pred_departure[,i]
+  diff = pred[,,i]
+  diff = as.data.frame(diff)
+  diag(diff) = NA
+  for (j in 1:nrow(diff)){
+    diff[j,] = diff[j,] /sum(diff[j,], na.rm=TRUE) * dep[j] 
+  }
+  diag(diff) = 1 - dep
+  M_FBwTSpr_FB_full[[i]] <- diff
+}
+saveRDS(M_FBwTSpr_FB_full, file = "outputs/feb11/M_FBwTSpr_FB_full.rds")
+
+```
+
+# Sensitivity analysis - missing population approach
+
+## CDRs
+
+```{r}
+# create mobility matrices for different combinations of scaling factors
+# try sensitivity analysis for missing population
+vec_p = c(0.2, 0.5, 0.8)
+vec_theta = c(0.5, 1, 2)
+vec_omega1 = c(0.5, 1, 2)
+vec_omega2 = c(0.5, 1, 2)
+vec_delta = c(0.5, 1, 2)
+
+# for CDR
+
+for (delta_n in 1:length(vec_delta)){
+  for (theta_n in 1:length(vec_theta)){
+    for (omega1_n in 1:length(vec_omega1)){
+      for (omega2_n in 1:length(vec_omega1)){
+        for (p_n in 1:length(vec_p)){
+          
+
+# try the first one
+mod_exp_temp = mod_exp
+mod_exp_temp$summary[["delta","mean"]] = mod_exp$summary[["delta", "mean"]] * vec_delta[delta_n]
+mod_exp_temp$summary[["theta","mean"]] = mod_exp$summary[["theta", "mean"]] * vec_theta[theta_n]
+mod_exp_temp$summary[["omega_1","mean"]] = mod_exp$summary[["omega_1", "mean"]] * vec_omega1[omega1_n]
+mod_exp_temp$summary[["omega_2","mean"]] = mod_exp$summary[["omega_2", "mean"]] * vec_omega2[omega2_n]
+
+
+# population 1
+all_data_full_pop1 = all_data_full
+all_data_full_pop1$N = round(vec_p[p_n] * all_data_full_pop1$N)
+# population 2
+all_data_full_pop2 = all_data_full
+all_data_full_pop2$N = all_data_full_pop2$N - all_data_full_pop1$N
+
+
+pred_temp  <- predict(mod_exp, newdata = all_data_full_pop1, nsim = 100, seed = 123)+
+              predict(mod_exp_temp, newdata = all_data_full_pop2, nsim = 100, seed = 123)
+
+# make into a matrix
+M_CDR_1 = list()
+for (ns in 1:num_sims){
+  M_CDR_1[[ns]] <- pred_temp[,,ns]
+}
+name_f = paste0("outputs/sensitivity/M_CDR_delta", delta_n, "_theta", theta_n, 
+                "_omega1_", omega1_n, "_omega2_", omega2_n, "_p", p_n, ".rds")
+saveRDS(M_CDR_1, name_f)
+        }
+      }
+    }
+  }
+}
+
+
+```

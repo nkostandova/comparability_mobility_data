@@ -1,0 +1,480 @@
+---
+title: "create_all_inputs"
+output: html_document
+date: "2022-12-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readxl)
+library(dplyr)
+library(tidyr)
+#library(lessR)
+library(tidyverse)
+#library(mobility)
+library(ggsci)
+library(cowplot)
+library(tidyr)
+library(truncnorm)
+library(ggplot2)
+library(ggrepel)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(gdistance)
+library(rjags)
+library(mobility)
+library(rgdal)
+source("functions_sims_aim3.R")
+library(rgeos)
+set.seed(1031)
+
+```
+
+## Load Zambia shapefile
+
+```{r}
+## load shapefile
+shp_zam = readOGR(dsn = "../Shapefiles/zmb_admbnda_adm2_dmmu_20201124.shp")
+shp_zam$district_lower = tolower(shp_zam$ADM2_EN)
+
+centroids = gCentroid(shp_zam, byid = TRUE)
+
+dat_shp = shp_zam@data
+centr <- SpatialPointsDataFrame(centroids, data= shp_zam@data)
+centroids_SAdf <- as.data.frame(coordinates(centr))  
+centroids_SAdf$ADM2 = dat_shp$ADM2_EN
+```
+
+## Load districts.full
+
+This includes:   
+- district and province names  
+- population data  
+- birth and death rates  
+- MCV1 coverage through 2018  
+- seropositivity estimates from ZAMPHIA (lower and upper bounds)  
+- SIA2016 estimates
+
+```{r}
+districts.full = read.csv("../inputs/districts.full.csv") # full dataset
+districts.full3 = read.csv("../inputs/districts.full3.csv") # restricted to those with CDRs
+```
+
+## Read in district density from census
+
+```{r}
+dat_dens = readxl::read_xlsx("../data/district_area_pop_115_per2019Census.xlsx")
+dat_dens$lower_dist = tolower(dat_dens$Admin2_Label)
+dat_dens = dat_dens %>% dplyr::select(lower_dist, Density)
+# check how many are in district dataset
+dat_dens = dat_dens %>% mutate(in_dt = ifelse(lower_dist %in% districts.full$district_map, 1, 0))
+districts.full= merge(districts.full, dat_dens, by.x = "district_map", by.y = "lower_dist", all.x=TRUE)
+# add classification of urban vs rural
+ndola_dens = 528.103067
+choma_dens = 48.904353
+cutoff = (ndola_dens+choma_dens)/2
+districts.full = districts.full %>% mutate(residence = ifelse(Density<cutoff, "choma", "ndola"))
+
+districts.full3 = merge(districts.full3, dat_dens, by.x = "district_map", by.y = "lower_dist", all.x=TRUE)
+districts.full3 = districts.full3 %>% mutate(residence = ifelse(Density<cutoff, "choma", "ndola")) # note this is identical to using 400ppl/m2 cutoff or 500ppl/m2 cutoff that WorldPop uses
+```
+
+
+
+## Set up initial conditions for full set of districts (115)
+
+```{r}
+n_years = 9
+
+# measles cfr = mean projected cfr 2016 - 2030: 1·3% (0·4–3·7) (https://www.thelancet.com/journals/langlo/article/PIIS2214-109X(18)30537-0/fulltext) --- check - should change this for IFR?
+measles_cfr = 0.013
+
+
+# recovery rate after infection with covid - assume 1 because we're doing time steps ~ 1 generation time
+wane_mat = 0.45 / 2  # check with amy about source / look around for it - the paper she gave is on rubella and varicella; divide by 2 because our time step is 2 weeks
+
+# proportion for whom vaccine dose is effective
+p_eff_V1r = 0.85  # first routine dose
+p_eff_V2r = 0.97  # second routine dose
+p_eff_V1c = 0.93  # first campaign dose
+
+
+## pull deaths
+deaths_rate_full = districts.full %>% dplyr::select(province_deaths) 
+rownames(deaths_rate_full) = districts.full$district_map ## rate per 1000 per year
+
+## pull births
+births_rate_full = districts.full %>% dplyr::select(cbr_province)
+rownames(births_rate_full) = districts.full$district_map ## rate per 1000 per year
+
+## mcv1 coverage data; for nationwide, use unicef estimates: https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwilrMi06cP6AhWB6qQKHbQtBZMQFnoECB0QAQ&url=https%3A%2F%2Fdata.unicef.org%2Fwp-content%2Fuploads%2F2022%2F07%2Fzmb.pdf&usg=AOvVaw2Nfk2xSKyPbP60OOwmKNZF
+mcv1_cov_full = districts.full %>% dplyr::select(mcv1_cov_2016, mcv1_cov_2017, mcv1_cov_2018)
+# add nationwide estimates
+mcv1_cov_full$nat2016 = 0.97
+mcv1_cov_full$nat2017 = 0.96
+mcv1_cov_full$nat2018 = 0.94
+mcv1_cov_full$nat2019 = 0.93
+mcv1_cov_full$nat2020 = 0.96
+mcv1_cov_full$nat2021 = 0.90
+mcv1_cov_full = mcv1_cov_full %>% mutate(mcv1_cov_2019 = mcv1_cov_2018 * nat2019 / nat2018)
+mcv1_cov_full = mcv1_cov_full %>% mutate(mcv1_cov_2020 = mcv1_cov_2019 * nat2020 / nat2019)
+mcv1_cov_full = mcv1_cov_full %>% mutate(mcv1_cov_2021 = mcv1_cov_2020 * nat2021 / nat2020)
+rownames(mcv1_cov_full) = districts.full$district_map ## proportion coverage
+# make into a time step dataframe
+mcv1_cov_dat_full = matrix(NA, nrow = nrow(districts.full), ncol = n_years * 26)
+mcv1_cov_dat_full[, 1:26] = (mcv1_cov_full$mcv1_cov_2016)    # year 2016
+mcv1_cov_dat_full[, (1+26):(26*2)] = mcv1_cov_full$mcv1_cov_2017 # year 2017
+mcv1_cov_dat_full[, (1+26*2):(26*3)] = mcv1_cov_full$mcv1_cov_2018 # year 2018
+mcv1_cov_dat_full[, (1+26*3):(26*4)] = mcv1_cov_full$mcv1_cov_2019 # year 2019 - scale 2018 estimates by ratio of national estimates
+mcv1_cov_dat_full[, (1+26*4):(26*5)] = mcv1_cov_full$mcv1_cov_2020 # year 2020 - scale 2019 estimates by ratio of national estimates
+mcv1_cov_dat_full[, (1+26*5):(26*6)] = mcv1_cov_full$mcv1_cov_2021 # year 2021 - scale 2020 estimates by ratio of national estimates
+mcv1_cov_dat_full[, (1+26*6):(26*7)] = mcv1_cov_full$mcv1_cov_2021 # year 2022
+mcv1_cov_dat_full[, (1+26*7):(26*8)] = mcv1_cov_full$mcv1_cov_2021 # year 2023
+mcv1_cov_dat_full[, (1+26*8):(26*9)] = mcv1_cov_full$mcv1_cov_2021 # year 2024
+mcv1_cov_dat_full = as.data.frame(mcv1_cov_dat_full)
+colnames(mcv1_cov_dat_full)[1:26] = sprintf("2016.%s", seq(1:26))
+colnames(mcv1_cov_dat_full)[(1+26):(26*2)] = sprintf("2017.%s", seq(1:26))
+colnames(mcv1_cov_dat_full)[(1+26*2):(26*3)] = sprintf("2018.%s", seq(1:26))
+colnames(mcv1_cov_dat_full)[(1+26*3):(26*4)] = sprintf("2019.%s", seq(1:26))
+colnames(mcv1_cov_dat_full)[(1+26*4):(26*5)] = sprintf("2020.%s", seq(1:26))
+colnames(mcv1_cov_dat_full)[(1+26*5):(26*6)] = sprintf("2021.%s", seq(1:26))
+colnames(mcv1_cov_dat_full)[(1+26*6):(26*7)] = sprintf("2022.%s", seq(1:26))
+colnames(mcv1_cov_dat_full)[(1+26*7):(26*8)] = sprintf("2023.%s", seq(1:26))
+colnames(mcv1_cov_dat_full)[(1+26*8):(26*9)] = sprintf("2024.%s", seq(1:26))
+# cap maximum at 99%
+mcv1_cov_dat_full[mcv1_cov_dat_full>0.99]=0.99
+rownames(mcv1_cov_dat_full) = districts.full$district_map 
+
+# mcv2 coverage --- scale mcv1 coverage by ratio between mcv2 and mcv1 (nationwide)
+mcv2_cov_full = mcv1_cov_full %>% mutate(mcv2_nat_2016 = 0.58,
+                               mcv2_nat_2017 = 0.64,
+                               mcv2_nat_2018 = 0.65,
+                               mcv2_nat_2019 = 0.66,
+                               mcv2_nat_2020 = 0.74,
+                               mcv2_nat_2021 = 0.81)
+mcv2_cov_full = mcv2_cov_full %>% mutate(mcv2_cov_2016 = mcv1_cov_2016 * mcv2_nat_2016 / nat2016,
+                               mcv2_cov_2017 = mcv1_cov_2017 * mcv2_nat_2017 / nat2017,
+                               mcv2_cov_2018 = mcv1_cov_2018 * mcv2_nat_2018 / nat2018,
+                               mcv2_cov_2019 = mcv1_cov_2019 * mcv2_nat_2019 / nat2019,
+                               mcv2_cov_2020 = mcv1_cov_2020 * mcv2_nat_2020 / nat2020,
+                               mcv2_cov_2021 = mcv1_cov_2021 * mcv2_nat_2021 / nat2021)
+# make into a time step dataframe
+mcv2_cov_dat_full = matrix(NA, nrow = nrow(districts.full), ncol = n_years * 26)
+mcv2_cov_dat_full[, 1:26] = (mcv2_cov_full$mcv2_cov_2016)    # year 2016
+mcv2_cov_dat_full[, (1+26):(26*2)] = mcv2_cov_full$mcv2_cov_2017 # year 2017
+mcv2_cov_dat_full[, (1+26*2):(26*3)] = mcv2_cov_full$mcv2_cov_2018 # year 2018
+mcv2_cov_dat_full[, (1+26*3):(26*4)] = mcv2_cov_full$mcv2_cov_2019 # year 2019 - scale 2018 estimates by ratio of national estimates
+mcv2_cov_dat_full[, (1+26*4):(26*5)] = mcv2_cov_full$mcv2_cov_2020 # year 2020 - scale 2019 estimates by ratio of national estimates
+mcv2_cov_dat_full[, (1+26*5):(26*6)] = mcv2_cov_full$mcv2_cov_2021 # year 2021 - scale 2020 estimates by ratio of national estimates
+mcv2_cov_dat_full[, (1+26*6):(26*7)] = mcv2_cov_full$mcv2_cov_2021 # year 2022
+mcv2_cov_dat_full[, (1+26*7):(26*8)] = mcv2_cov_full$mcv2_cov_2021 # year 2023
+mcv2_cov_dat_full[, (1+26*8):(26*9)] = mcv2_cov_full$mcv2_cov_2021 # year 2024
+mcv2_cov_dat_full = as.data.frame(mcv2_cov_dat_full)
+colnames(mcv2_cov_dat_full)[1:26] = sprintf("2016.%s", seq(1:26))
+colnames(mcv2_cov_dat_full)[(1+26):(26*2)] = sprintf("2017.%s", seq(1:26))
+colnames(mcv2_cov_dat_full)[(1+26*2):(26*3)] = sprintf("2018.%s", seq(1:26))
+colnames(mcv2_cov_dat_full)[(1+26*3):(26*4)] = sprintf("2019.%s", seq(1:26))
+colnames(mcv2_cov_dat_full)[(1+26*4):(26*5)] = sprintf("2020.%s", seq(1:26))
+colnames(mcv2_cov_dat_full)[(1+26*5):(26*6)] = sprintf("2021.%s", seq(1:26))
+colnames(mcv2_cov_dat_full)[(1+26*6):(26*7)] = sprintf("2022.%s", seq(1:26))
+colnames(mcv2_cov_dat_full)[(1+26*7):(26*8)] = sprintf("2023.%s", seq(1:26))
+colnames(mcv2_cov_dat_full)[(1+26*8):(26*9)] = sprintf("2024.%s", seq(1:26))
+rownames(mcv2_cov_dat_full) = districts.full$district_map 
+mcv2_cov_dat_full[mcv2_cov_dat_full>0.99]=0.99
+
+# SIA2016 coverage
+sia2016_cov_full = districts.full %>% dplyr::select(sia2016)
+rownames(sia2016_cov_full) = districts.full$district_map
+
+## SIA 2020 coverage
+sia2020_cov_full = districts.full %>% dplyr::select(PCES2020)
+rownames(sia2020_cov_full) = districts.full$district_map ## proportion coverage
+sia2020_cov_full$sia2020 = sia2020_cov_full$PCES2020 / 100
+
+sia_cov_full = matrix(0, nrow = nrow(districts.full), ncol = n_years * 26)
+sia_cov_full = as.data.frame(sia_cov_full)
+colnames(sia_cov_full)[1:26] = sprintf("2016.%s", seq(1:26))
+colnames(sia_cov_full)[(1+26):(26*2)] = sprintf("2017.%s", seq(1:26))
+colnames(sia_cov_full)[(1+26*2):(26*3)] = sprintf("2018.%s", seq(1:26))
+colnames(sia_cov_full)[(1+26*3):(26*4)] = sprintf("2019.%s", seq(1:26))
+colnames(sia_cov_full)[(1+26*4):(26*5)] = sprintf("2020.%s", seq(1:26))
+colnames(sia_cov_full)[(1+26*5):(26*6)] = sprintf("2021.%s", seq(1:26))
+colnames(sia_cov_full)[(1+26*6):(26*7)] = sprintf("2022.%s", seq(1:26))
+colnames(sia_cov_full)[(1+26*7):(26*8)] = sprintf("2023.%s", seq(1:26))
+colnames(sia_cov_full)[(1+26*8):(26*9)] = sprintf("2024.%s", seq(1:26))
+rownames(sia_cov_full) = districts.full$district_map 
+sia_cov_full$`2016.18` = sia2016_cov_full$sia2016
+sia_cov_full$`2020.18` = sia2020_cov_full$sia2020
+
+## pull population - use from districts.full2
+pop_dat_full = districts.full %>% dplyr::select(province_2018, district_2018, pop_2016:pop_2019, growth_rate)
+# start in 2016
+pop_mat_full = matrix(NA, nrow = nrow(pop_dat_full), ncol = n_years * 26)
+pop_mat_full[, 1:26] = (pop_dat_full$pop_2016)    # year 2016
+pop_mat_full[, (1+26):(26*2)] = pop_dat_full$pop_2017 # year 2017
+pop_mat_full[, (1+26*2):(26*3)] = pop_dat_full$pop_2018 # year 2018
+pop_mat_full[, (1+26*3):(26*4)] = pop_dat_full$pop_2019 # year 2019
+pop_mat_full[, (1+26*4):(26*5)] = pop_dat_full$pop_2019 * pop_dat_full$growth_rate # year 2020
+pop_mat_full[, (1+26*5):(26*6)] = pop_dat_full$pop_2019 * (pop_dat_full$growth_rate)^2 # year 2021
+pop_mat_full[, (1+26*6):(26*7)] = pop_dat_full$pop_2019 * (pop_dat_full$growth_rate)^3 # year 2022
+pop_mat_full[, (1+26*7):(26*8)] = pop_dat_full$pop_2019 * (pop_dat_full$growth_rate)^4 # year 2023
+pop_mat_full[, (1+26*8):(26*9)] = pop_dat_full$pop_2019 * (pop_dat_full$growth_rate)^5 # year 2024
+pop_mat_full = as.data.frame(pop_mat_full)
+colnames(pop_mat_full)[1:26] = sprintf("2016.%s", seq(1:26))
+colnames(pop_mat_full)[(1+26):(26*2)] = sprintf("2017.%s", seq(1:26))
+colnames(pop_mat_full)[(1+26*2):(26*3)] = sprintf("2018.%s", seq(1:26))
+colnames(pop_mat_full)[(1+26*3):(26*4)] = sprintf("2019.%s", seq(1:26))
+colnames(pop_mat_full)[(1+26*4):(26*5)] = sprintf("2020.%s", seq(1:26))
+colnames(pop_mat_full)[(1+26*5):(26*6)] = sprintf("2021.%s", seq(1:26))
+colnames(pop_mat_full)[(1+26*6):(26*7)] = sprintf("2022.%s", seq(1:26))
+colnames(pop_mat_full)[(1+26*7):(26*8)] = sprintf("2023.%s", seq(1:26))
+colnames(pop_mat_full)[(1+26*8):(26*9)] = sprintf("2024.%s", seq(1:26))
+rownames(pop_mat_full) = districts.full$district_map 
+
+# population starting in the maternal compartment - suppose it's something like children 0 - 3 months
+# based on 2010 census, 2020 projection: children 0 - 5 = 17.5%
+# assume children 0-3 months make up a little over 1/4 of 1/5 of 17.5% = 0.00875 of population
+prop_mat = 0.00875
+
+N0_full = pop_mat_full$`2016.1`  # total population 
+M0_full = N0_full*prop_mat    # maternal compartment
+
+# for susceptibles - pass in N0_full, plus lower, upper, and mean seroprev
+lower_S0 = districts.full$lowerseroprev.pop.2016
+upper_S0 = districts.full$upperseroprev.pop.2016
+mean_S0 = districts.full$meanseroprev.pop.2016
+S0_full = data.frame(lower_S0 = lower_S0,
+                     upper_S0 = upper_S0,
+                     mean_S0 = mean_S0)# susceptible compartment
+
+# infectious individuals
+I0_full = rep(0, length(N0_full))
+lusaka_row = which(rownames(pop_mat_full)=="lusaka") # get rowname for Lusaka district
+I0_full[lusaka_row] = c(10)
+
+V1R0_full = rep(0, length(N0_full))
+V20_full = rep(0, length(N0_full))
+V1C0_full = rep(0, length(N0_full))
+
+
+incid_deaths0 = rep(0, length(N0_full))
+
+mob_data_prob_full = readRDS("outputs/feb11/M_CDR_full.rds")
+# order in same way as the other initial conditions
+for (i in 1:length(mob_data_prob_full)){
+  mob_data_prob_full[[i]] = mob_data_prob_full[[i]][rownames(pop_mat_full), rownames(pop_mat_full)]
+}
+
+#initial_conditions_full = data.frame(M0 = M0_full, S0 = S0_full , I0 = I0_full, V1R0 = V1R0_full, V1C0 = V1C0_full, V20 = V20_full, incid_deaths0 = incid_deaths0,  N0 = N0_full)
+initial_conditions_full = data.frame(M = M0_full, S = S0_full , I0 = I0_full, V1R0 = V1R0_full, V1C0 = V1C0_full, V20 = V20_full, incid_deaths0 = incid_deaths0,  N0 = N0_full)
+
+```
+
+Introduction matrix
+```{r}
+# introduction matrix
+lusaka_row_full = which(rownames(pop_mat_full)=="lusaka") # get rowname for Lusaka district
+
+intro_mat_full = matrix(0, nrow = nrow(pop_dat_full), ncol = n_years * 26)
+intro_mat_full[lusaka_row_full,] = c(rep(c(5, 0), ncol(intro_mat_full)/2))
+intro_mat_full = as.data.frame(intro_mat_full)
+rownames(intro_mat_full) = rownames(pop_mat_full)
+
+```
+
+Introduction matrix for Lunte, Chirundu, and Mafinga
+```{r}
+# introduction matrix
+lunte_row_full = which(rownames(pop_mat_full)=="lunte district") # get rowname for Lusaka district
+chirundu_row_full = which(rownames(pop_mat_full)=="chirundu") # get rowname for Chirundu district
+mafinga_row_full = which(rownames(pop_mat_full)=="mafinga") # get rowname for Mafinga district
+
+
+intro_mat_full_outbreak = matrix(0, nrow = nrow(pop_dat_full), ncol = n_years * 26)
+intro_mat_full_outbreak[lunte_row_full,1] = 5
+intro_mat_full_outbreak[chirundu_row_full,1] = 10
+intro_mat_full_outbreak[mafinga_row_full,1] = 5
+
+intro_mat_full_outbreak = as.data.frame(intro_mat_full_outbreak)
+rownames(intro_mat_full_outbreak) = rownames(pop_mat_full)
+
+```
+
+Introduction matrix for Choma and Ndola
+```{r}
+# introduction matrix
+choma_row_full = which(rownames(pop_mat_full)=="choma") 
+ndola_row_full = which(rownames(pop_mat_full)=="ndola") 
+
+intro_mat_full_choma_ndola = matrix(0, nrow = nrow(pop_dat_full), ncol = n_years * 26)
+intro_mat_full_choma_ndola[choma_row_full,1] = 5
+intro_mat_full_choma_ndola[ndola_row_full,1] = 5
+
+intro_mat_full_choma_ndola = as.data.frame(intro_mat_full_choma_ndola)
+rownames(intro_mat_full_choma_ndola) = rownames(pop_mat_full)
+
+```
+## Set up initial conditions for set of districts with CDRs (107)
+
+```{r}
+pop_dat = districts.full3 %>% dplyr::select(province_2018, district_2018, pop_2016:pop_2019, growth_rate)
+
+pop_mat = pop_mat_full %>% filter(rownames(pop_mat_full) %in% districts.full3$district_map)
+sia_cov = sia_cov_full %>% filter(rownames(sia_cov_full) %in% districts.full3$district_map)
+deaths_rate = deaths_rate_full %>% filter(rownames(deaths_rate_full) %in% districts.full3$district_map)
+births_rate = births_rate_full %>% filter(rownames(births_rate_full) %in% districts.full3$district_map)
+mcv1_cov_dat = mcv1_cov_dat_full %>% filter(rownames(mcv1_cov_dat_full) %in% districts.full3$district_map)
+mcv2_cov_dat = mcv2_cov_dat_full %>% filter(rownames(mcv2_cov_dat_full) %in% districts.full3$district_map)
+
+
+N0 = pop_mat$`2016.1`  # total population 
+M0 = N0*prop_mat    # maternal compartment
+lower_S0 = districts.full3$lowerseroprev.pop.2016
+upper_S0 = districts.full3$upperseroprev.pop.2016
+mean_S0 = districts.full3$meanseroprev.pop.2016
+S0_short = data.frame(lower_S0 = lower_S0,
+                     upper_S0 = upper_S0,
+                     mean_S0 = mean_S0)# susceptible compartment
+
+# infectious individuals
+I0 = rep(0, length(N0))
+lusaka_row = which(rownames(pop_mat)=="lusaka") # get rowname for Lusaka district
+I0[lusaka_row] = c(10)
+
+# for now, set vaccinated compartments to 0 - though should probably have some people in them to start with
+V1R0 = rep(0, length(N0))
+V20 = rep(0, length(N0))
+V1C0 = rep(0, length(N0))
+
+#R0 = N0 - (M0 + S0 +I0 + V1R0+ V1C0+ V20+ V1C0)  # recovered
+
+incid_deaths0 = rep(0, length(N0))
+
+
+```
+
+```{r}
+# introduction matrix
+intro_mat = intro_mat_full %>% filter(rownames(intro_mat_full) %in% districts.full3$district_map)
+
+intro_mat_outbreak = intro_mat_full_outbreak %>% filter(rownames(intro_mat_full_outbreak) %in% districts.full3$district_map)
+
+intro_mat_choma_ndola = intro_mat_full_choma_ndola %>% filter(rownames(intro_mat_full_choma_ndola) %in% districts.full3$district_map)
+```
+
+# # parameters
+```{r}
+t = n_years * 26 # 26 two-weeks in a year
+Ncomp = 1
+beta0 = 15
+beta1 = 0.3
+
+gamma = 1
+beta_values = beta0 * (1 + beta1*cos(2*pi*seq(0,1,length=26)))
+season_index = rep(1:26, n_years)
+
+alpha = 0.975
+
+delta.t = 1
+
+# assume that average age at which people are moving from M to S is 1 / 0.45
+# assume first dose of routine is at 9 months
+# then time to MR1 is (9 - 1/0.45)
+wane_prob = 0.45
+MR1_time = (9 - 1/(wane_prob)) * 2  ## about 13 weeks
+# MR2 time is at 18 months; so time from MR1 to MR2 is (18 - 9) = 9 months
+MR2_time = (18 - 9) * 2
+
+n_sims = 100
+```
+
+## Starting just at 2020 SIA campaign
+
+```{r}
+intro_mat_2020_full = intro_mat_full[, 121:234] 
+intro_mat_2020 = intro_mat[, 121:234]
+
+
+# try seeding introduction just in lusaka, 10 cases on first time step
+intro_mat_2020[intro_mat_2020>0]=0  
+intro_mat_2020[lusaka_row,1]=10
+
+intro_mat_2020_full[intro_mat_2020_full>0]=0  
+intro_mat_2020_full[lusaka_row_full,1]=10
+
+
+```
+
+
+Introduction matrix - outbreak-like: Lunte, Chirundu, and Mafinga
+
+
+
+
+```{r}
+# update population matrix
+pop_mat2020_2 = pop_mat %>% dplyr::select("2020.17":"2021.26")
+
+# update parameters
+mcv1_cov_dat[mcv1_cov_dat>0.99]=0.99
+mcv1_cov_dat2020_2 = mcv1_cov_dat %>% dplyr::select("2020.17":"2021.26")
+mcv2_cov_dat[mcv2_cov_dat>0.99]=0.99
+mcv2_cov_dat2020_2 = mcv2_cov_dat %>% dplyr::select("2020.17":"2021.26")
+sia_cov2020_2 = sia_cov %>% dplyr::select("2020.17":"2021.26")
+intro_mat2020_2 = intro_mat_2020[, 1:36] 
+intro_mat2020_outbreak = intro_mat_outbreak[, 1:36]
+
+intro_mat2020_outbreak_full = intro_mat_full_outbreak[, 1:36]
+
+
+sd.dw.val = 0.01
+
+t_2 = 36
+```
+
+# Intro matrix - seed in Choma and Ndola
+```{r}
+intro_mat2020_2 = intro_mat_2020[, 1:36] 
+intro_mat2020_outbreak = intro_mat_outbreak[, 1:36]
+
+intro_mat2020_outbreak_full = intro_mat_full_outbreak[, 1:36]
+
+
+intro_mat_outbreak = intro_mat_full_outbreak %>% filter(rownames(intro_mat_full_outbreak) %in% districts.full3$district_map)
+
+```
+
+## Set up SIA three months in - target provinces with introductions (Lusaka, Northern, Eastern)
+
+```{r}
+# assume 
+SIA_intros = districts.full %>% dplyr::select(lower_dist, district_map, province_2018) %>% mutate(SIA = ifelse(province_2018 %in% c("Lusaka", "Northern", "Eastern"), 1, 0))
+SIA_intros = SIA_intros %>% filter(SIA==1)
+dists_w_SIA = SIA_intros$district_map
+
+sia_wintros_mat2020 = sia_cov2020_2
+sia_wintros_mat2020[dists_w_SIA, "2020.20"] = 0.95
+
+sia_cov2020_2_full = sia_cov_full %>% dplyr::select("2020.17":"2021.26")
+sia_wintros_mat2020_full = sia_cov2020_2_full
+sia_wintros_mat2020_full[dists_w_SIA, "2020.20"] = 0.95
+```
+
+## Set up initial conditions where there's much more even susceptibility across districts
+```{r}
+# for susceptibles - pass in N0_full, plus lower, upper, and mean seroprev
+mean_S0 = runif(n = length(districts.full$upperseroprev.pop.2016), min = 0.83, max = 0.85)
+lower_S0 = mean_S0 - 0.1
+upper_S0 = mean_S0 + 0.1
+S0_full_su = data.frame(lower_S0 = lower_S0,
+                     upper_S0 = upper_S0,
+                     mean_S0 = mean_S0)# susceptible compartment
+incid_deaths0 = rep(0, length(N0_full))
+
+
+initial_conditions_full_su = data.frame(M = M0_full, S = S0_full_su , I0 = I0_full, V1R0 = V1R0_full, V1C0 = V1C0_full, V20 = V20_full, incid_deaths0 = incid_deaths0,  N0 = N0_full)
+
+
+```
